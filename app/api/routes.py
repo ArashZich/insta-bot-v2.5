@@ -132,10 +132,71 @@ def get_stats(request: StatsRequest, db: Session = Depends(get_db)):
     return StatsResponse(period=period, **stats)
 
 
+def get_date_range_from_period(period: str):
+    """Convert period string to date range"""
+    now = datetime.utcnow()
+    if period == "today":
+        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == "yesterday":
+        start_date = (now - timedelta(days=1)).replace(hour=0,
+                                                       minute=0, second=0, microsecond=0)
+        end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "this_week":
+        # Get the start of the current week (Monday)
+        start_date = (now - timedelta(days=now.weekday())
+                      ).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == "last_week":
+        # Get the start of the last week (Monday)
+        this_week_start = (now - timedelta(days=now.weekday())
+                           ).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = this_week_start - timedelta(days=7)
+        end_date = this_week_start
+    elif period == "this_month":
+        # Get the start of the current month
+        start_date = now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == "last_month":
+        # Get the start of the current month
+        this_month_start = now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0)
+        # Get the start of the last month (handle year change)
+        if this_month_start.month == 1:
+            start_date = this_month_start.replace(
+                year=this_month_start.year-1, month=12)
+        else:
+            start_date = this_month_start.replace(
+                month=this_month_start.month-1)
+        end_date = this_month_start
+    elif period == "last_30_days":
+        start_date = now - timedelta(days=30)
+        end_date = now
+    elif period == "last_90_days":
+        start_date = now - timedelta(days=90)
+        end_date = now
+    elif period == "this_year":
+        start_date = now.replace(
+            month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == "all_time":
+        start_date = datetime.min
+        end_date = now
+    else:
+        # Default to last 7 days if period is unknown
+        start_date = now - timedelta(days=7)
+        end_date = now
+
+    return start_date, end_date
+
+
 @router.get("/activities", response_model=ActivityListResponse)
 def get_activities(
     activity_type: Optional[str] = None,
     status: Optional[str] = None,
+    period: Optional[str] = Query(
+        "last_7_days", description="Time period filter [today, yesterday, this_week, last_week, this_month, last_month, last_30_days, last_90_days, this_year, all_time]"),
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
     page: int = Query(1, ge=1),
@@ -152,11 +213,18 @@ def get_activities(
     if status:
         query = query.filter(BotActivity.status == status)
 
-    if from_date:
-        query = query.filter(BotActivity.created_at >= from_date)
-
-    if to_date:
-        query = query.filter(BotActivity.created_at <= to_date)
+    # Apply date filters
+    # If from_date and to_date are explicitly provided, use them
+    # Otherwise, use the period parameter
+    if from_date or to_date:
+        if from_date:
+            query = query.filter(BotActivity.created_at >= from_date)
+        if to_date:
+            query = query.filter(BotActivity.created_at <= to_date)
+    elif period:
+        start_date, end_date = get_date_range_from_period(period)
+        query = query.filter(BotActivity.created_at >= start_date)
+        query = query.filter(BotActivity.created_at <= end_date)
 
     # Count total matching records
     total = query.count()
@@ -192,6 +260,8 @@ def get_activities(
 def get_followings(
     is_following: Optional[bool] = None,
     followed_back: Optional[bool] = None,
+    period: Optional[str] = Query(
+        "last_7_days", description="Time period filter [today, yesterday, this_week, last_week, this_month, last_month, last_30_days, last_90_days, this_year, all_time]"),
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
     page: int = Query(1, ge=1),
@@ -208,11 +278,18 @@ def get_followings(
     if followed_back is not None:
         query = query.filter(UserFollowing.followed_back == followed_back)
 
-    if from_date:
-        query = query.filter(UserFollowing.followed_at >= from_date)
-
-    if to_date:
-        query = query.filter(UserFollowing.followed_at <= to_date)
+    # Apply date filters
+    # If from_date and to_date are explicitly provided, use them
+    # Otherwise, use the period parameter
+    if from_date or to_date:
+        if from_date:
+            query = query.filter(UserFollowing.followed_at >= from_date)
+        if to_date:
+            query = query.filter(UserFollowing.followed_at <= to_date)
+    elif period:
+        start_date, end_date = get_date_range_from_period(period)
+        query = query.filter(UserFollowing.followed_at >= start_date)
+        query = query.filter(UserFollowing.followed_at <= end_date)
 
     # Count total matching records
     total = query.count()
