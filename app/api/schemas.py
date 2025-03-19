@@ -1,10 +1,24 @@
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
+from enum import Enum
+
+
+class BotAction(str, Enum):
+    start = "start"
+    stop = "stop"
+    restart = "restart"
+
+
+class StatPeriod(str, Enum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    six_months = "six_months"
 
 
 class StatsRequest(BaseModel):
-    period: str  # 'daily', 'weekly', 'monthly', 'six_months'
+    period: StatPeriod
 
 
 class ActivityCount(BaseModel):
@@ -46,7 +60,7 @@ class BotStatusResponse(BaseModel):
 
 
 class BotControlRequest(BaseModel):
-    action: str  # 'start', 'stop', 'restart'
+    action: BotAction
 
 
 class BotControlResponse(BaseModel):

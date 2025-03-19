@@ -1,7 +1,9 @@
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
+from enum import Enum
 
 from app.models.database import get_db, BotActivity, UserFollowing, BotSession, DailyStats
 from app.bot.utils import get_activity_stats, get_daily_limits_status
@@ -17,6 +19,72 @@ from app.api.schemas import (
     FollowingItem,
     FollowingListResponse
 )
+
+# تعریف enum برای action در BotControlRequest
+
+
+class BotAction(str, Enum):
+    start = "start"
+    stop = "stop"
+    restart = "restart"
+
+# تعریف enum برای period در StatsRequest
+
+
+class StatPeriod(str, Enum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    six_months = "six_months"
+
+# تعریف enum برای activity_type
+
+
+class ActivityType(str, Enum):
+    follow = "follow"
+    unfollow = "unfollow"
+    like = "like"
+    comment = "comment"
+    direct = "direct"
+    story_reaction = "story_reaction"
+
+# تعریف enum برای status
+
+
+class ActivityStatus(str, Enum):
+    success = "success"
+    failed = "failed"
+
+# تعریف enum برای period فیلتر
+
+
+class FilterPeriod(str, Enum):
+    today = "today"
+    yesterday = "yesterday"
+    this_week = "this_week"
+    last_week = "last_week"
+    this_month = "this_month"
+    last_month = "last_month"
+    last_7_days = "last_7_days"
+    last_30_days = "last_30_days"
+    last_90_days = "last_90_days"
+    this_year = "this_year"
+    all_time = "all_time"
+
+
+# اصلاح فایل schemas.py برای BotControlRequest
+
+# این کلاس را می‌توانید در فایل schemas.py بازنویسی کنید
+
+class BotControlRequest(BaseModel):
+    action: BotAction
+
+# این کلاس را می‌توانید در فایل schemas.py بازنویسی کنید
+
+
+class StatsRequest(BaseModel):
+    period: StatPeriod
+
 
 # Create the API router
 router = APIRouter(prefix="/api", tags=["bot"])
@@ -70,9 +138,9 @@ def control_bot(request: BotControlRequest):
         raise HTTPException(
             status_code=503, detail="Bot scheduler not initialized")
 
-    action = request.action.lower()
+    action = request.action
 
-    if action == "start":
+    if action == BotAction.start:
         if bot_scheduler.running:
             return BotControlResponse(
                 success=False,
@@ -87,7 +155,7 @@ def control_bot(request: BotControlRequest):
                 status=success
             )
 
-    elif action == "stop":
+    elif action == BotAction.stop:
         if not bot_scheduler.running:
             return BotControlResponse(
                 success=False,
@@ -102,7 +170,7 @@ def control_bot(request: BotControlRequest):
                 status=False
             )
 
-    elif action == "restart":
+    elif action == BotAction.restart:
         if bot_scheduler.running:
             bot_scheduler.stop()
 
@@ -113,52 +181,41 @@ def control_bot(request: BotControlRequest):
             status=success
         )
 
-    else:
-        raise HTTPException(
-            status_code=400, detail="Invalid action. Use 'start', 'stop', or 'restart'")
-
 
 @router.post("/stats", response_model=StatsResponse)
 def get_stats(request: StatsRequest, db: Session = Depends(get_db)):
     """Get bot statistics for a specific period"""
-    period = request.period.lower()
-
-    if period not in ["daily", "weekly", "monthly", "six_months"]:
-        raise HTTPException(
-            status_code=400, detail="Invalid period. Use 'daily', 'weekly', 'monthly', or 'six_months'")
-
-    stats = get_activity_stats(db, period)
-
-    return StatsResponse(period=period, **stats)
+    stats = get_activity_stats(db, request.period)
+    return StatsResponse(period=request.period, **stats)
 
 
-def get_date_range_from_period(period: str):
+def get_date_range_from_period(period: FilterPeriod):
     """Convert period string to date range"""
     now = datetime.utcnow()
-    if period == "today":
+    if period == FilterPeriod.today:
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = now
-    elif period == "yesterday":
+    elif period == FilterPeriod.yesterday:
         start_date = (now - timedelta(days=1)).replace(hour=0,
                                                        minute=0, second=0, microsecond=0)
         end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif period == "this_week":
+    elif period == FilterPeriod.this_week:
         # Get the start of the current week (Monday)
         start_date = (now - timedelta(days=now.weekday())
                       ).replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = now
-    elif period == "last_week":
+    elif period == FilterPeriod.last_week:
         # Get the start of the last week (Monday)
         this_week_start = (now - timedelta(days=now.weekday())
                            ).replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = this_week_start - timedelta(days=7)
         end_date = this_week_start
-    elif period == "this_month":
+    elif period == FilterPeriod.this_month:
         # Get the start of the current month
         start_date = now.replace(
             day=1, hour=0, minute=0, second=0, microsecond=0)
         end_date = now
-    elif period == "last_month":
+    elif period == FilterPeriod.last_month:
         # Get the start of the current month
         this_month_start = now.replace(
             day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -170,21 +227,20 @@ def get_date_range_from_period(period: str):
             start_date = this_month_start.replace(
                 month=this_month_start.month-1)
         end_date = this_month_start
-    elif period == "last_30_days":
+    elif period == FilterPeriod.last_30_days:
         start_date = now - timedelta(days=30)
         end_date = now
-    elif period == "last_90_days":
+    elif period == FilterPeriod.last_90_days:
         start_date = now - timedelta(days=90)
         end_date = now
-    elif period == "this_year":
+    elif period == FilterPeriod.this_year:
         start_date = now.replace(
             month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         end_date = now
-    elif period == "all_time":
+    elif period == FilterPeriod.all_time:
         start_date = datetime.min
         end_date = now
-    else:
-        # Default to last 7 days if period is unknown
+    else:  # FilterPeriod.last_7_days as default
         start_date = now - timedelta(days=7)
         end_date = now
 
@@ -193,12 +249,10 @@ def get_date_range_from_period(period: str):
 
 @router.get("/activities", response_model=ActivityListResponse)
 def get_activities(
-    activity_type: Optional[str] = None,
-    status: Optional[str] = None,
-    period: Optional[str] = Query(
-        "last_7_days", description="Time period filter [today, yesterday, this_week, last_week, this_month, last_month, last_30_days, last_90_days, this_year, all_time]"),
-    from_date: Optional[datetime] = None,
-    to_date: Optional[datetime] = None,
+    activity_type: Optional[ActivityType] = None,
+    status: Optional[ActivityStatus] = None,
+    period: FilterPeriod = Query(
+        FilterPeriod.last_7_days, description="Time period filter"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -213,18 +267,10 @@ def get_activities(
     if status:
         query = query.filter(BotActivity.status == status)
 
-    # Apply date filters
-    # If from_date and to_date are explicitly provided, use them
-    # Otherwise, use the period parameter
-    if from_date or to_date:
-        if from_date:
-            query = query.filter(BotActivity.created_at >= from_date)
-        if to_date:
-            query = query.filter(BotActivity.created_at <= to_date)
-    elif period:
-        start_date, end_date = get_date_range_from_period(period)
-        query = query.filter(BotActivity.created_at >= start_date)
-        query = query.filter(BotActivity.created_at <= end_date)
+    # Apply date filters using period
+    start_date, end_date = get_date_range_from_period(period)
+    query = query.filter(BotActivity.created_at >= start_date)
+    query = query.filter(BotActivity.created_at <= end_date)
 
     # Count total matching records
     total = query.count()
@@ -260,10 +306,8 @@ def get_activities(
 def get_followings(
     is_following: Optional[bool] = None,
     followed_back: Optional[bool] = None,
-    period: Optional[str] = Query(
-        "last_7_days", description="Time period filter [today, yesterday, this_week, last_week, this_month, last_month, last_30_days, last_90_days, this_year, all_time]"),
-    from_date: Optional[datetime] = None,
-    to_date: Optional[datetime] = None,
+    period: FilterPeriod = Query(
+        FilterPeriod.last_7_days, description="Time period filter"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -278,18 +322,10 @@ def get_followings(
     if followed_back is not None:
         query = query.filter(UserFollowing.followed_back == followed_back)
 
-    # Apply date filters
-    # If from_date and to_date are explicitly provided, use them
-    # Otherwise, use the period parameter
-    if from_date or to_date:
-        if from_date:
-            query = query.filter(UserFollowing.followed_at >= from_date)
-        if to_date:
-            query = query.filter(UserFollowing.followed_at <= to_date)
-    elif period:
-        start_date, end_date = get_date_range_from_period(period)
-        query = query.filter(UserFollowing.followed_at >= start_date)
-        query = query.filter(UserFollowing.followed_at <= end_date)
+    # Apply date filters using period
+    start_date, end_date = get_date_range_from_period(period)
+    query = query.filter(UserFollowing.followed_at >= start_date)
+    query = query.filter(UserFollowing.followed_at <= end_date)
 
     # Count total matching records
     total = query.count()
