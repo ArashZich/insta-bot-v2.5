@@ -1,6 +1,5 @@
-# این قسمت بالای فایل routes.py را تغییر می‌دهیم
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -20,13 +19,6 @@ from app.api.schemas import (
     FollowingItem,
     FollowingListResponse
 )
-
-# وارد کردن کتابخانه محدودیت درخواست
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-# تعریف محدودکننده درخواست
-limiter = Limiter(key_func=get_remote_address)
 
 # تعریف enum برای action در BotControlRequest
 
@@ -79,9 +71,10 @@ class FilterPeriod(str, Enum):
     this_year = "this_year"
     all_time = "all_time"
 
-# اصلاح فایل schemas.py برای BotControlRequest
-# این کلاس را می‌توانید در فایل schemas.py بازنویسی کنید
 
+# اصلاح فایل schemas.py برای BotControlRequest
+
+# این کلاس را می‌توانید در فایل schemas.py بازنویسی کنید
 
 class BotControlRequest(BaseModel):
     action: BotAction
@@ -101,8 +94,7 @@ bot_scheduler = None
 
 
 @router.get("/status", response_model=BotStatusResponse)
-@limiter.limit("20/minute")  # محدودیت: 20 درخواست در دقیقه
-def get_bot_status(request: Request, db: Session = Depends(get_db)):
+def get_bot_status(db: Session = Depends(get_db)):
     """Get current bot status"""
     # Check if bot is running
     running = bot_scheduler.running if bot_scheduler else False
@@ -140,14 +132,13 @@ def get_bot_status(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/control", response_model=BotControlResponse)
-@limiter.limit("5/minute")  # محدودیت: 5 درخواست در دقیقه
-def control_bot(request: Request, control_request: BotControlRequest):
+def control_bot(request: BotControlRequest):
     """Control bot (start, stop, restart)"""
     if not bot_scheduler:
         raise HTTPException(
             status_code=503, detail="Bot scheduler not initialized")
 
-    action = control_request.action
+    action = request.action
 
     if action == BotAction.start:
         if bot_scheduler.running:
@@ -192,11 +183,10 @@ def control_bot(request: Request, control_request: BotControlRequest):
 
 
 @router.post("/stats", response_model=StatsResponse)
-@limiter.limit("10/minute")  # محدودیت: 10 درخواست در دقیقه
-def get_stats(request: Request, stats_request: StatsRequest, db: Session = Depends(get_db)):
+def get_stats(request: StatsRequest, db: Session = Depends(get_db)):
     """Get bot statistics for a specific period"""
-    stats = get_activity_stats(db, stats_request.period)
-    return StatsResponse(period=stats_request.period, **stats)
+    stats = get_activity_stats(db, request.period)
+    return StatsResponse(period=request.period, **stats)
 
 
 def get_date_range_from_period(period: FilterPeriod):
@@ -258,9 +248,7 @@ def get_date_range_from_period(period: FilterPeriod):
 
 
 @router.get("/activities", response_model=ActivityListResponse)
-@limiter.limit("15/minute")  # محدودیت: 15 درخواست در دقیقه
 def get_activities(
-    request: Request,
     activity_type: Optional[ActivityType] = None,
     status: Optional[ActivityStatus] = None,
     period: FilterPeriod = Query(
@@ -315,9 +303,7 @@ def get_activities(
 
 
 @router.get("/followings", response_model=FollowingListResponse)
-@limiter.limit("15/minute")  # محدودیت: 15 درخواست در دقیقه
 def get_followings(
-    request: Request,
     is_following: Optional[bool] = None,
     followed_back: Optional[bool] = None,
     period: FilterPeriod = Query(

@@ -1,7 +1,6 @@
 import logging
 import uvicorn
 from fastapi import FastAPI, Request
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -11,11 +10,6 @@ from app.api.routes import router as api_router
 from app.config import API_HOST, API_PORT
 import app.api.routes as routes_module
 
-# افزودن کتابخانه‌های مورد نیاز برای محدودیت درخواست
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -23,32 +17,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# تعریف محدودکننده درخواست
-limiter = Limiter(key_func=get_remote_address)
+# Create FastAPI app
+app = FastAPI(
+    title="Instagram Bot API",
+    description="API for controlling Instagram bot with human-like behavior",
+    version="1.0.0"
+)
 
-# کلاس میدلور برای افزودن هدرهای امنیتی
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
-        # هدرهای امنیتی برای جلوگیری از حملات متداول
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
-
-# میدلور برای فیلتر کردن درخواست‌های مشکوک
+# میدلور ساده برای فیلتر کردن درخواست‌های مشکوک
 
 
+@app.middleware("http")
 async def filter_suspicious_requests(request: Request, call_next):
     path = request.url.path.lower()
     suspicious_patterns = [
-        ".git", ".env", "wp-", "phpinfo", ".php", "config",
-        "admin", "shell", ".htaccess", "passwd", "ssh",
-        "credential", ".aws", "api/proxy", "eval", "exec"
+        ".git/", ".env", "wp-", "phpinfo", ".php",
+        "/.git", "/config", "/admin"
     ]
 
     # بررسی الگوهای مشکوک در مسیر
@@ -60,22 +44,8 @@ async def filter_suspicious_requests(request: Request, call_next):
             content={"detail": "Access forbidden"}
         )
 
+    # ادامه پردازش درخواست
     return await call_next(request)
-
-# Create FastAPI app
-app = FastAPI(
-    title="Instagram Bot API",
-    description="API for controlling Instagram bot with human-like behavior",
-    version="1.0.0"
-)
-
-# اضافه کردن میدلویر‌ها
-app.middleware("http")(filter_suspicious_requests)
-app.add_middleware(SecurityHeadersMiddleware)
-
-# تنظیم محدودکننده درخواست
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add API routes
 app.include_router(api_router)
