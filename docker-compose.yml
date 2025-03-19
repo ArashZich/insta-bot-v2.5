@@ -16,9 +16,13 @@ services:
     environment:
       - PYTHONPATH=/app
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy  # منتظر بماند تا postgres سالم باشد
     networks:
       - instagram-bot-network
+    # افزودن تاخیر برای اطمینان بیشتر
+    command: >
+      bash -c "sleep 10 && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   postgres:
     image: postgres:15
@@ -36,9 +40,10 @@ services:
       - instagram-bot-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s  # زمان بیشتر برای راه‌اندازی اولیه
 
 networks:
   instagram-bot-network:

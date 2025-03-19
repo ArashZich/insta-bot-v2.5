@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -14,7 +14,7 @@ logger = logging.getLogger("database")
 
 
 def get_engine():
-    max_retries = 5
+    max_retries = 10  # افزایش تعداد تلاش‌ها
     retry_delay = 5  # seconds
 
     for attempt in range(max_retries):
@@ -24,7 +24,8 @@ def get_engine():
             engine = create_engine(DATABASE_URL)
             # Try a simple query to test connection
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
+                # استفاده از text() برای تبدیل رشته به قابل اجرا
+                conn.execute(text("SELECT 1"))
             logger.info("Database connection successful")
             return engine
         except Exception as e:
