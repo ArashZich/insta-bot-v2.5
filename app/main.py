@@ -36,21 +36,29 @@ async def startup_event():
         logger.info("Database tables created successfully")
 
         # Initialize bot scheduler
-        db = next(get_db())
-        bot_scheduler = BotScheduler(db)
+        try:
+            db = next(get_db())
+            bot_scheduler = BotScheduler(db)
 
-        # Make bot scheduler available to API routes
-        routes_module.bot_scheduler = bot_scheduler
+            # Make bot scheduler available to API routes
+            routes_module.bot_scheduler = bot_scheduler
 
-        # Start the bot automatically
-        success = bot_scheduler.start()
-        if success:
-            logger.info("Bot started successfully")
-        else:
-            logger.error("Failed to start bot")
+            # Start the bot automatically if enabled
+            # Uncomment this part after confirming API works
+            # success = bot_scheduler.start()
+            # if success:
+            #     logger.info("Bot started successfully")
+            # else:
+            #     logger.error("Failed to start bot")
+            logger.info("Bot scheduler initialized but not auto-started")
+
+        except Exception as e:
+            logger.error(f"Error initializing bot scheduler: {str(e)}")
+            raise
 
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
+        raise
 
 
 @app.on_event("shutdown")
@@ -65,5 +73,6 @@ async def shutdown_event():
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}")
 
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host=API_HOST, port=API_PORT, reload=False)
+    uvicorn.run("app.main:app", host=API_HOST, port=API_PORT, reload=False)

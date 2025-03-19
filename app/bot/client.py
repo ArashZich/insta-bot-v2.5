@@ -24,6 +24,12 @@ class InstagramClient:
         """Login to Instagram account using session or credentials"""
         logger.info(f"Attempting to login as {INSTAGRAM_USERNAME}")
 
+        # بررسی وجود نام کاربری و رمز عبور
+        if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
+            logger.error(
+                "Instagram username or password not set in environment variables")
+            return False
+
         # تلاش برای ورود ساده با نام کاربری و رمز عبور
         try:
             # اضافه کردن تاخیر قبل از لاگین

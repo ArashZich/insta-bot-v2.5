@@ -2,11 +2,43 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+import time
+import logging
 
 from app.config import DATABASE_URL
 
-# Create SQLAlchemy engine
-engine = create_engine(DATABASE_URL)
+# Setup logger
+logger = logging.getLogger("database")
+
+# Create SQLAlchemy engine with retry logic
+
+
+def get_engine():
+    max_retries = 5
+    retry_delay = 5  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(
+                f"Attempting to connect to database (attempt {attempt+1}/{max_retries})")
+            engine = create_engine(DATABASE_URL)
+            # Try a simple query to test connection
+            with engine.connect() as conn:
+                conn.execute("SELECT 1")
+            logger.info("Database connection successful")
+            return engine
+        except Exception as e:
+            logger.error(f"Database connection failed: {str(e)}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(
+                    "Maximum retry attempts reached. Could not connect to database.")
+                raise
+
+
+engine = get_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create base class for SQLAlchemy models
@@ -68,7 +100,7 @@ class DailyStats(Base):
     followers_lost = Column(Integer, default=0)
 
 
-# Create function to get DB session
+# Function to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -79,10 +111,22 @@ def get_db():
 
 # Function to create all database tables
 def create_tables():
-    Base.metadata.create_all(bind=engine)
+    try:
+        logger.info("Creating database tables...")
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
+    except Exception as e:
+        logger.error(f"Error creating database tables: {str(e)}")
+        raise
 
 
 # Function to reset all database tables
 def reset_tables():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
+    try:
+        logger.info("Resetting database tables...")
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables reset successfully")
+    except Exception as e:
+        logger.error(f"Error resetting database tables: {str(e)}")
+        raise
