@@ -1,5 +1,6 @@
 import time
 import random
+import logging
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
@@ -8,28 +9,31 @@ from app.config import MIN_DELAY_BETWEEN_ACTIONS, MAX_DELAY_BETWEEN_ACTIONS
 from app.config import REST_PERIOD_MIN, REST_PERIOD_MAX, ACTIVITIES
 from app.logger import setup_logger
 
-# Configure logging
+# Setup logger
 logger = setup_logger("utils")
 
 
 def random_delay():
     """Add a random delay between actions to make bot behavior more human-like"""
-    delay = random.randint(MIN_DELAY_BETWEEN_ACTIONS,
-                           MAX_DELAY_BETWEEN_ACTIONS)
+    # افزایش مقدار تاخیر به صورت موقت (بیشتر از مقادیر تنظیم شده)
+    min_delay = max(MIN_DELAY_BETWEEN_ACTIONS, 60)  # حداقل 60 ثانیه
+    max_delay = max(MAX_DELAY_BETWEEN_ACTIONS, 180)  # حداقل 180 ثانیه
+
+    delay = random.randint(min_delay, max_delay)
     logger.info(f"Waiting for {delay} seconds before next action")
     time.sleep(delay)
 
 
 def should_rest():
     """Decide if the bot should take a break based on time of day and randomness"""
-    # Random chance of resting
-    if random.random() < 0.1:  # 10% chance of random rest
+    # افزایش احتمال استراحت به 20%
+    if random.random() < 0.2:  # 20% chance of random rest
         logger.info("Taking a random rest period based on chance")
         return True
 
     # Check time of day - avoid late night activity (more suspicious)
     current_hour = datetime.now().hour
-    if 1 <= current_hour <= 6:  # Between 1 AM and 6 AM
+    if 1 <= current_hour <= 7:  # Between 1 AM and 7 AM
         logger.info(f"Taking a rest because current hour is {current_hour}")
         return True
 
@@ -38,7 +42,11 @@ def should_rest():
 
 def take_rest():
     """Pause bot activity for a rest period"""
-    rest_hours = random.uniform(REST_PERIOD_MIN, REST_PERIOD_MAX)
+    # افزایش زمان استراحت
+    rest_hours = random.uniform(
+        max(REST_PERIOD_MIN, 4),  # حداقل 4 ساعت
+        max(REST_PERIOD_MAX, 8)   # حداقل 8 ساعت
+    )
     rest_seconds = int(rest_hours * 3600)
     logger.info(
         f"Taking a rest for {rest_hours:.2f} hours ({rest_seconds} seconds)")
@@ -47,7 +55,22 @@ def take_rest():
 
 def choose_random_activity():
     """Choose a random activity from available activities"""
-    return random.choice(ACTIVITIES)
+    # اولویت دادن به فعالیت‌های کم‌خطرتر (لایک و مشاهده استوری)
+    weights = {
+        "follow": 1,
+        "unfollow": 1,
+        "like": 4,      # احتمال بیشتر
+        "comment": 1,
+        "direct": 1,
+        "story_reaction": 3  # احتمال بیشتر
+    }
+
+    activities = []
+    for activity, weight in weights.items():
+        if activity in ACTIVITIES:
+            activities.extend([activity] * weight)
+
+    return random.choice(activities)
 
 
 def get_daily_limits_status(db: Session):

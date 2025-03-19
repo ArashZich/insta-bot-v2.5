@@ -6,13 +6,15 @@ services:
     container_name: instagram_bot
     restart: always
     volumes:
-      - ./app:/app
+      - .:/app
       - ./sessions:/app/sessions
       - ./logs:/app/logs
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - PYTHONPATH=/app
     depends_on:
       - postgres
     networks:

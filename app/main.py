@@ -66,4 +66,4 @@ async def shutdown_event():
         logger.error(f"Error during shutdown: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host=API_HOST, port=API_PORT, reload=False)
+    uvicorn.run("main:app", host=API_HOST, port=API_PORT, reload=False)

@@ -1,3 +1,4 @@
+import logging
 import random
 import threading
 import time
@@ -18,7 +19,7 @@ from app.bot.utils import (
 from app.config import RANDOM_ACTIVITY_MODE
 from app.logger import setup_logger
 
-# Configure logging
+# Setup logger
 logger = setup_logger("scheduler")
 
 
@@ -32,10 +33,17 @@ class BotScheduler:
         self.lock = threading.Lock()  # Lock to prevent concurrent actions
 
     def initialize(self):
-        """Initialize the bot by logging in and setting up actions"""
+        """Initialize the bot by loading session or logging in"""
+        # ابتدا سعی در بارگذاری نشست موجود
+        if self.client.load_session():
+            logger.info("Successfully loaded existing session")
+            self.actions = ActionManager(self.client.get_client(), self.db)
+            return True
+
+        # اگر نشست موجود نبود، تلاش برای ورود جدید
         if self.client.login():
             self.actions = ActionManager(self.client.get_client(), self.db)
-            logger.info("Bot initialized successfully")
+            logger.info("Bot initialized successfully with new login")
             return True
         else:
             logger.error("Failed to initialize bot - login failed")
@@ -49,8 +57,8 @@ class BotScheduler:
         # Schedule the main activity task
         self.scheduler.add_job(
             self.perform_activity,
-            # Check for activity every 10 minutes
-            trigger=IntervalTrigger(minutes=10),
+            # افزایش فاصله بین فعالیت‌ها به 15 دقیقه
+            trigger=IntervalTrigger(minutes=15),
             id='activity_job',
             replace_existing=True
         )
@@ -83,6 +91,9 @@ class BotScheduler:
             return
 
         try:
+            # اضافه کردن تاخیر اضافی قبل از شروع
+            time.sleep(random.randint(5, 15))
+
             # Check if we should take a rest
             if should_rest():
                 take_rest()
@@ -114,9 +125,15 @@ class BotScheduler:
 
         except Exception as e:
             logger.error(f"Error performing activity: {str(e)}")
+
+            # اگر خطا مربوط به نشست بود، سعی در ورود مجدد
+            if "login_required" in str(e).lower() or "loginrequired" in str(e).lower():
+                logger.info("Session expired. Attempting to login again...")
+                self.client.login()
         finally:
             self.lock.release()
 
+    # بقیه متدهای کلاس بدون تغییر...
     def perform_follow_activity(self):
         """Perform follow-related activities"""
         try:
@@ -133,7 +150,7 @@ class BotScheduler:
                 if HASHTAGS:
                     hashtag = random.choice(HASHTAGS)
                     count = self.actions.follow.follow_hashtag_users(
-                        hashtag, max_users=3)
+                        hashtag, max_users=2)  # کاهش تعداد
                     logger.info(
                         f"Followed {count} users from hashtag #{hashtag}")
 
@@ -143,12 +160,13 @@ class BotScheduler:
                 if TARGET_USERS:
                     username = random.choice(TARGET_USERS)
                     count = self.actions.follow.follow_user_followers(
-                        username, max_users=3)
+                        username, max_users=2)  # کاهش تعداد
                     logger.info(
                         f"Followed {count} followers of user {username}")
 
             elif action == "follow_my_followers":
-                count = self.actions.follow.follow_my_followers(max_users=3)
+                count = self.actions.follow.follow_my_followers(
+                    max_users=2)  # کاهش تعداد
                 logger.info(
                     f"Followed {count} of my followers that I wasn't following back")
 
@@ -170,7 +188,7 @@ class BotScheduler:
 
             if action == "unfollow_non_followers":
                 count = self.actions.unfollow.unfollow_non_followers(
-                    max_users=3)
+                    max_users=2)  # کاهش تعداد
                 logger.info(
                     f"Unfollowed {count} users who don't follow me back")
 
@@ -178,13 +196,13 @@ class BotScheduler:
                 # Random days threshold between 7-14 days
                 days = random.randint(7, 14)
                 count = self.actions.unfollow.unfollow_old_followings(
-                    days_threshold=days, max_users=3)
+                    days_threshold=days, max_users=2)  # کاهش تعداد
                 logger.info(
                     f"Unfollowed {count} users who didn't follow back after {days} days")
 
             elif action == "unfollow_users_who_unfollowed_me":
                 count = self.actions.unfollow.unfollow_users_who_unfollowed_me(
-                    max_users=3)
+                    max_users=2)  # کاهش تعداد
                 logger.info(f"Unfollowed {count} users who unfollowed me")
 
             # Add a delay before the next action
@@ -210,7 +228,7 @@ class BotScheduler:
                 if HASHTAGS:
                     hashtag = random.choice(HASHTAGS)
                     count = self.actions.like.like_hashtag_medias(
-                        hashtag, max_likes=5)
+                        hashtag, max_likes=3)  # کاهش تعداد
                     logger.info(f"Liked {count} posts from hashtag #{hashtag}")
 
             elif action == "like_user_media":
@@ -220,16 +238,17 @@ class BotScheduler:
                     username = random.choice(TARGET_USERS)
                     user_id = self.client.get_client().user_id_from_username(username)
                     count = self.actions.like.like_user_media(
-                        user_id, max_likes=3)
+                        user_id, max_likes=2)  # کاهش تعداد
                     logger.info(f"Liked {count} posts from user {username}")
 
             elif action == "like_followers_media":
                 count = self.actions.like.like_followers_media(
-                    max_users=2, posts_per_user=2)
+                    max_users=1, posts_per_user=2)  # کاهش تعداد
                 logger.info(f"Liked {count} posts from my followers")
 
             elif action == "like_feed_medias":
-                count = self.actions.like.like_feed_medias(max_likes=5)
+                count = self.actions.like.like_feed_medias(
+                    max_likes=3)  # کاهش تعداد
                 logger.info(f"Liked {count} posts from my feed")
 
             # Add a delay before the next action
@@ -254,18 +273,18 @@ class BotScheduler:
                 if HASHTAGS:
                     hashtag = random.choice(HASHTAGS)
                     count = self.actions.comment.comment_on_hashtag_medias(
-                        hashtag, max_comments=2)
+                        hashtag, max_comments=1)  # کاهش تعداد
                     logger.info(
                         f"Commented on {count} posts from hashtag #{hashtag}")
 
             elif action == "comment_on_followers_media":
                 count = self.actions.comment.comment_on_followers_media(
-                    max_users=2)
+                    max_users=1)  # کاهش تعداد
                 logger.info(f"Commented on {count} posts from my followers")
 
             elif action == "comment_on_feed_medias":
                 count = self.actions.comment.comment_on_feed_medias(
-                    max_comments=3)
+                    max_comments=1)  # کاهش تعداد
                 logger.info(f"Commented on {count} posts from my feed")
 
             # Add a delay before the next action
@@ -286,17 +305,17 @@ class BotScheduler:
 
             if action == "send_welcome_messages_to_new_followers":
                 count = self.actions.direct.send_welcome_messages_to_new_followers(
-                    max_messages=2)
+                    max_messages=1)  # کاهش تعداد
                 logger.info(f"Sent welcome messages to {count} new followers")
 
             elif action == "send_engagement_messages":
                 count = self.actions.direct.send_engagement_messages(
-                    max_messages=1)
+                    max_messages=1)  # کاهش تعداد
                 logger.info(f"Sent engagement messages to {count} users")
 
             elif action == "send_inactive_follower_messages":
                 count = self.actions.direct.send_inactive_follower_messages(
-                    days_inactive=30, max_messages=1)
+                    days_inactive=30, max_messages=1)  # کاهش تعداد
                 logger.info(f"Sent messages to {count} inactive followers")
 
             # Add a delay before the next action
@@ -316,12 +335,12 @@ class BotScheduler:
 
             if action == "react_to_followers_stories":
                 count = self.actions.story_reaction.react_to_followers_stories(
-                    max_users=3, max_reactions_per_user=1)
+                    max_users=2, max_reactions_per_user=1)  # کاهش تعداد
                 logger.info(f"Reacted to {count} stories from my followers")
 
             elif action == "react_to_following_stories":
                 count = self.actions.story_reaction.react_to_following_stories(
-                    max_users=3, max_reactions_per_user=1)
+                    max_users=2, max_reactions_per_user=1)  # کاهش تعداد
                 logger.info(f"Reacted to {count} stories from users I follow")
 
             # Add a delay before the next action
