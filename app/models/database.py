@@ -12,6 +12,10 @@ from app.config import DATABASE_URL
 # Setup logger
 logger = logging.getLogger("database")
 
+# Global variables at the module level
+engine = None
+SessionLocal = None
+
 # Create SQLAlchemy engine with database creation capability
 
 
@@ -185,6 +189,9 @@ def get_db():
 
 # Function to create all database tables with retry logic
 def create_tables():
+    global engine
+    global SessionLocal
+
     max_retries = 5
     retry_delay = 5
 
@@ -205,9 +212,7 @@ def create_tables():
                 # تلاش مجدد برای ایجاد موتور در صورت نیاز
                 try:
                     new_engine = get_engine()
-                    global engine
                     engine = new_engine
-                    global SessionLocal
                     SessionLocal = sessionmaker(
                         autocommit=False, autoflush=False, bind=engine)
                 except Exception as engine_error:
