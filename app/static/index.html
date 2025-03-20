@@ -3,333 +3,879 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>مدیریت ربات اینستاگرام</title>
+    <title>پنل مدیریت حرفه‌ای ربات اینستاگرام</title>
     <style>
+      :root {
+        --primary-color: #1e88e5;
+        --success-color: #43a047;
+        --warning-color: #fb8c00;
+        --danger-color: #e53935;
+        --gray-color: #757575;
+        --light-gray: #f5f5f5;
+        --border-color: #e0e0e0;
+        --shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
       body {
         font-family: Tahoma, Arial, sans-serif;
         background-color: #f9f9f9;
         margin: 0;
-        padding: 20px;
+        padding: 0;
         direction: rtl;
+        color: #333;
+        line-height: 1.6;
       }
+
       .container {
-        max-width: 800px;
+        max-width: 1200px;
         margin: 0 auto;
-        background-color: white;
-        border-radius: 10px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         padding: 20px;
       }
-      h1,
-      h2 {
-        color: #333;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 10px;
-      }
-      .card {
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        padding: 15px;
+
+      .dashboard-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         margin-bottom: 20px;
-        background-color: #f5f5f5;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--border-color);
       }
-      .card h3 {
-        margin-top: 0;
-        color: #444;
+
+      .dashboard-title {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
       }
-      .button {
-        display: inline-block;
-        background-color: #4caf50;
-        color: white;
-        padding: 10px 20px;
-        margin: 5px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
+
+      .dashboard-metadata {
+        font-size: 14px;
+        color: var(--gray-color);
+      }
+
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+
+      .panel {
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        transition: all 0.3s ease;
+        overflow: hidden;
+      }
+
+      .panel:hover {
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+      }
+
+      .panel-header {
+        padding: 15px 20px;
+        background-color: #f8f9fa;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .panel-title {
+        font-weight: bold;
         font-size: 16px;
-        text-decoration: none;
+        color: #333;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .panel-icon {
+        width: 18px;
+        height: 18px;
+      }
+
+      .panel-body {
+        padding: 20px;
+      }
+
+      .full-width {
+        grid-column: 1 / -1;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 15px;
+      }
+
+      .button {
+        padding: 8px 16px;
+        border-radius: 4px;
+        border: none;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+        min-width: 100px;
+        color: white;
+      }
+
+      .button-primary {
+        background-color: var(--primary-color);
+      }
+
+      .button-success {
+        background-color: var(--success-color);
+      }
+
+      .button-warning {
+        background-color: var(--warning-color);
+      }
+
+      .button-danger {
+        background-color: var(--danger-color);
+      }
+
+      .button:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+      }
+
+      .button:active {
+        transform: translateY(0);
+      }
+
+      .status-indicator {
+        display: flex;
+        align-items: center;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-weight: 500;
+      }
+
+      .status-indicator-icon {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-left: 10px;
+      }
+
+      .status-running {
+        background-color: rgba(67, 160, 71, 0.1);
+        color: var(--success-color);
+        border-left: 4px solid var(--success-color);
+      }
+
+      .status-running .status-indicator-icon {
+        background-color: var(--success-color);
+        box-shadow: 0 0 0 3px rgba(67, 160, 71, 0.2);
+      }
+
+      .status-stopped {
+        background-color: rgba(229, 57, 53, 0.1);
+        color: var(--danger-color);
+        border-left: 4px solid var(--danger-color);
+      }
+
+      .status-stopped .status-indicator-icon {
+        background-color: var(--danger-color);
+        box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.2);
+      }
+
+      .bot-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-top: 20px;
+      }
+
+      .info-card {
+        background-color: var(--light-gray);
+        border-radius: 6px;
+        padding: 15px;
         text-align: center;
       }
-      .button:hover {
-        background-color: #45a049;
+
+      .info-card-title {
+        font-size: 13px;
+        color: var(--gray-color);
+        margin-bottom: 5px;
       }
-      .button.red {
-        background-color: #f44336;
+
+      .info-card-value {
+        font-size: 20px;
+        font-weight: bold;
       }
-      .button.red:hover {
-        background-color: #d32f2f;
+
+      .info-card-footer {
+        font-size: 12px;
+        color: var(--gray-color);
+        margin-top: 5px;
       }
-      .button.blue {
-        background-color: #2196f3;
-      }
-      .button.blue:hover {
-        background-color: #0b7dda;
-      }
-      .status {
-        padding: 10px;
-        border-radius: 5px;
-        margin: 10px 0;
-      }
-      .status.running {
-        background-color: #dff0d8;
-        color: #3c763d;
-      }
-      .status.stopped {
-        background-color: #f2dede;
-        color: #a94442;
-      }
-      pre {
-        background-color: #f5f5f5;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        padding: 10px;
-        overflow-x: auto;
-        direction: ltr;
-        text-align: left;
-      }
-      table {
+
+      .limits-table {
         width: 100%;
         border-collapse: collapse;
-        margin: 20px 0;
+        margin-top: 10px;
       }
-      table,
-      th,
-      td {
-        border: 1px solid #ddd;
-      }
-      th,
-      td {
-        padding: 10px;
+
+      .limits-table th,
+      .limits-table td {
+        padding: 12px 15px;
         text-align: right;
+        border-bottom: 1px solid var(--border-color);
       }
-      th {
-        background-color: #f2f2f2;
+
+      .limits-table th {
+        font-weight: 500;
+        color: var(--gray-color);
+        background-color: #f8f9fa;
       }
-      #statusContainer,
-      #activitiesContainer {
+
+      .limits-table td {
+        font-weight: 500;
+      }
+
+      .progress-bar-container {
+        width: 100%;
+        height: 6px;
+        background-color: #e0e0e0;
+        border-radius: 3px;
+        margin-top: 5px;
+        overflow: hidden;
+      }
+
+      .progress-bar {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+      }
+
+      .progress-low {
+        background-color: #43a047;
+      }
+
+      .progress-medium {
+        background-color: #fb8c00;
+      }
+
+      .progress-high {
+        background-color: #e53935;
+      }
+
+      .activities-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .activities-table th,
+      .activities-table td {
+        padding: 10px 15px;
+        text-align: right;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .activities-table th {
+        font-weight: 500;
+        color: var(--gray-color);
+        background-color: #f8f9fa;
+      }
+
+      .activities-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .activity-status {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .activity-success {
+        background-color: rgba(67, 160, 71, 0.1);
+        color: var(--success-color);
+      }
+
+      .activity-failed {
+        background-color: rgba(229, 57, 53, 0.1);
+        color: var(--danger-color);
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 15px;
+      }
+
+      .stat-card {
+        background-color: white;
+        border-radius: 6px;
+        padding: 15px;
+        text-align: center;
+        box-shadow: var(--shadow);
+      }
+
+      .stat-card-title {
+        font-size: 13px;
+        color: var(--gray-color);
+        margin-bottom: 5px;
+      }
+
+      .stat-card-value {
+        font-size: 24px;
+        font-weight: bold;
+      }
+
+      .chart-container {
+        width: 100%;
+        height: 250px;
         margin-top: 20px;
+      }
+
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 15px;
+      }
+
+      .tab {
+        padding: 8px 15px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.3s ease;
+      }
+
+      .tab.active {
+        border-bottom-color: var(--primary-color);
+        color: var(--primary-color);
+        font-weight: 500;
+      }
+
+      .tab-content {
+        display: none;
+      }
+
+      .tab-content.active {
+        display: block;
+      }
+
+      .log-container {
+        background-color: #2b2b2b;
+        color: #f8f8f8;
+        border-radius: 6px;
+        padding: 15px;
+        font-family: monospace;
+        height: 250px;
+        overflow-y: auto;
+        margin-top: 15px;
+      }
+
+      .log-entry {
+        margin-bottom: 5px;
+        line-height: 1.4;
+        font-size: 13px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .log-time {
+        color: #8bc34a;
+        margin-right: 5px;
+      }
+
+      .log-level {
+        margin-right: 5px;
+        font-weight: bold;
+      }
+
+      .log-info {
+        color: #64b5f6;
+      }
+
+      .log-warning {
+        color: #ffb74d;
+      }
+
+      .log-error {
+        color: #e57373;
+      }
+
+      .refresh-button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--primary-color);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+      }
+
+      .refresh-button:hover {
+        text-decoration: underline;
+      }
+
+      .flex-row {
+        display: flex;
+        align-items: center;
+      }
+
+      .next-activity {
+        background-color: rgba(30, 136, 229, 0.1);
+        color: var(--primary-color);
+        border-radius: 4px;
+        padding: 12px 16px;
+        margin-top: 15px;
+        font-size: 14px;
+      }
+
+      .pie-chart-container {
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        margin-top: 20px;
+      }
+
+      .pie-chart {
+        width: 150px;
+        height: 150px;
+        position: relative;
+      }
+
+      .pie-chart-legend {
+        font-size: 13px;
+      }
+
+      .pie-chart-legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .legend-color {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        margin-left: 8px;
+      }
+
+      .loading {
+        position: relative;
+        min-height: 80px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .loading::after {
+        content: "";
+        width: 25px;
+        height: 25px;
+        border: 2px solid rgba(30, 136, 229, 0.2);
+        border-left-color: var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .page-indicator {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .page-button {
+        padding: 5px 10px;
+        background-color: #f0f0f0;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      .page-button.active {
+        background-color: var(--primary-color);
+        color: white;
+      }
+
+      .error-message {
+        background-color: rgba(229, 57, 53, 0.1);
+        color: var(--danger-color);
+        border-radius: 4px;
+        padding: 12px 16px;
+        margin-top: 15px;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      /* Chart.js default font */
+      #activityChart {
+        width: 100%;
+        height: 100%;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>مدیریت ربات اینستاگرام</h1>
-
-      <div class="card">
-        <h3>کنترل ربات</h3>
-        <button class="button" onclick="startBot()">شروع ربات</button>
-        <button class="button red" onclick="stopBot()">توقف ربات</button>
-        <button class="button blue" onclick="restartBot()">
-          راه‌اندازی مجدد ربات
-        </button>
-        <button class="button blue" onclick="forceUnlock()">
-          آزادسازی اجباری قفل
-        </button>
+      <div class="dashboard-header">
+        <div class="dashboard-title">پنل مدیریت حرفه‌ای ربات اینستاگرام</div>
+        <div class="dashboard-metadata">
+          تاریخ: <span id="currentDate">-</span> | ساعت:
+          <span id="currentTime">-</span>
+        </div>
       </div>
 
-      <div class="card">
-        <h3>وضعیت ربات</h3>
-        <button class="button blue" onclick="getStatus()">بررسی وضعیت</button>
-        <div id="statusContainer"></div>
-      </div>
+      <div class="dashboard-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg
+                class="panel-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              وضعیت ربات
+            </div>
+            <button class="refresh-button" onclick="getStatus()">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21.5 2v6h-6"></path>
+                <path
+                  d="M2.5 12c0 5 4 9 9 9 2.5 0 4.9-1 6.6-2.7l3.4-3.3"
+                ></path>
+                <path d="M2 22v-6h6"></path>
+                <path d="M21.5 12c0-5-4-9-9-9-2.5 0-4.9 1-6.6 2.7L2.5 9"></path>
+              </svg>
+              بروزرسانی
+            </button>
+          </div>
+          <div class="panel-body">
+            <div id="botStatusContainer" class="loading"></div>
+            <div class="button-group">
+              <button class="button button-success" onclick="startBot()">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                شروع ربات
+              </button>
+              <button class="button button-danger" onclick="stopBot()">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+                توقف ربات
+              </button>
+              <button class="button button-warning" onclick="restartBot()">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                  ></path>
+                  <path d="M3 3v5h5"></path>
+                  <path
+                    d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+                  ></path>
+                  <path d="M16 16h5v5"></path>
+                </svg>
+                راه‌اندازی مجدد
+              </button>
+              <button class="button button-primary" onclick="forceUnlock()">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect
+                    x="3"
+                    y="11"
+                    width="18"
+                    height="11"
+                    rx="2"
+                    ry="2"
+                  ></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                آزادسازی قفل
+              </button>
+            </div>
+          </div>
+        </div>
 
-      <div class="card">
-        <h3>فعالیت‌های اخیر</h3>
-        <button class="button blue" onclick="getActivities()">
-          دریافت فعالیت‌های اخیر
-        </button>
-        <div id="activitiesContainer"></div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg
+                class="panel-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 20v-6M6 20V10M18 20V4"></path>
+              </svg>
+              آمار کلی عملکرد
+            </div>
+            <button class="refresh-button" onclick="getStats()">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21.5 2v6h-6"></path>
+                <path
+                  d="M2.5 12c0 5 4 9 9 9 2.5 0 4.9-1 6.6-2.7l3.4-3.3"
+                ></path>
+                <path d="M2 22v-6h6"></path>
+                <path d="M21.5 12c0-5-4-9-9-9-2.5 0-4.9 1-6.6 2.7L2.5 9"></path>
+              </svg>
+              بروزرسانی
+            </button>
+          </div>
+          <div class="panel-body">
+            <div class="tabs">
+              <div class="tab active" data-tab="daily">روزانه</div>
+              <div class="tab" data-tab="weekly">هفتگی</div>
+              <div class="tab" data-tab="monthly">ماهانه</div>
+            </div>
+            <div id="statsContainer" class="loading"></div>
+          </div>
+        </div>
+
+        <div class="panel full-width">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg
+                class="panel-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+              </svg>
+              محدودیت‌های روزانه
+            </div>
+            <button class="refresh-button" onclick="getStatus()">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21.5 2v6h-6"></path>
+                <path
+                  d="M2.5 12c0 5 4 9 9 9 2.5 0 4.9-1 6.6-2.7l3.4-3.3"
+                ></path>
+                <path d="M2 22v-6h6"></path>
+                <path d="M21.5 12c0-5-4-9-9-9-2.5 0-4.9 1-6.6 2.7L2.5 9"></path>
+              </svg>
+              بروزرسانی
+            </button>
+          </div>
+          <div class="panel-body">
+            <div id="limitsContainer" class="loading"></div>
+          </div>
+        </div>
+
+        <div class="panel full-width">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg
+                class="panel-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                ></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <line x1="10" y1="9" x2="8" y2="9"></line>
+              </svg>
+              فعالیت‌های اخیر ربات
+            </div>
+            <div class="flex-row">
+              <div class="tabs">
+                <div class="tab active" data-tab="today">امروز</div>
+                <div class="tab" data-tab="yesterday">دیروز</div>
+                <div class="tab" data-tab="week">هفته‌ای</div>
+              </div>
+              <button class="refresh-button" onclick="getActivities()">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M21.5 2v6h-6"></path>
+                  <path
+                    d="M2.5 12c0 5 4 9 9 9 2.5 0 4.9-1 6.6-2.7l3.4-3.3"
+                  ></path>
+                  <path d="M2 22v-6h6"></path>
+                  <path
+                    d="M21.5 12c0-5-4-9-9-9-2.5 0-4.9 1-6.6 2.7L2.5 9"
+                  ></path>
+                </svg>
+                بروزرسانی
+              </button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="activitiesContainer" class="loading"></div>
+          </div>
+        </div>
       </div>
     </div>
 
+    <!-- Load Chart.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+
     <script>
-      // Function to format date
+      // Utility functions
       function formatDate(dateString) {
+        if (!dateString) return "-";
         const date = new Date(dateString);
-        return date.toLocaleString("fa-IR");
+        return new Intl.DateTimeFormat("fa-IR", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(date);
       }
 
-      // Function to start the bot
-      function startBot() {
-        fetch("/api/control", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action: "start" }),
-        })
-          .then((response) => response.json())
-          .then((data) => {
-            alert(data.message);
-            getStatus();
-          })
-          .catch((error) => {
-            console.error("Error:", error);
-            alert("خطا در ارتباط با سرور");
-          });
+      function formatTime(dateString) {
+        if (!dateString) return "-";
+        const date = new Date(dateString);
+        return new Intl.DateTimeFormat("fa-IR", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(date);
       }
 
-      // Function to stop the bot
-      function stopBot() {
-        fetch("/api/control", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action: "stop" }),
-        })
-          .then((response) => response.json())
-          .then((data) => {
-            alert(data.message);
-            getStatus();
-          })
-          .catch((error) => {
-            console.error("Error:", error);
-            alert("خطا در ارتباط با سرور");
-          });
+      function formatTimeElapsed(dateString) {
+        if (!dateString) return "نامشخص";
+
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffSec = Math.floor(diffMs / 1000);
+
+        if (diffSec < 60) return `${diffSec} ثانیه پیش`;
+
+        const diffMin = Math.floor(diffSec / 60);
+        if (diffMin < 60) return `${diffMin} دقیقه پیش`;
+
+        const diffHour = Math.floor(diffMin / 60);
+        if (diffHour < 24) return `${diffHour} ساعت پیش`;
+
+        const diffDay = Math.floor(diffHour / 24);
+        return `${diffDay} روز پیش`;
       }
 
-      // Function to restart the bot
-      function restartBot() {
-        // Using the easy endpoint that doesn't require a JSON body
-        fetch("/api/restart-bot")
-          .then((response) => response.json())
-          .then((data) => {
-            alert(data.message);
-            getStatus();
-          })
-          .catch((error) => {
-            console.error("Error:", error);
-            alert("خطا در ارتباط با سرور");
-          });
-      }
-
-      // Function to force unlock the bot
-      function forceUnlock() {
-        fetch("/api/force-unlock")
-          .then((response) => response.json())
-          .then((data) => {
-            alert(data.message);
-            getStatus();
-          })
-          .catch((error) => {
-            console.error("Error:", error);
-            alert("خطا در ارتباط با سرور");
-          });
-      }
-
-      // Function to get bot status
-      function getStatus() {
-        fetch("/api/status")
-          .then((response) => response.json())
-          .then((data) => {
-            const statusClass = data.running ? "running" : "stopped";
-            const statusText = data.running ? "در حال اجرا" : "متوقف شده";
-
-            let html = `<div class="status ${statusClass}">وضعیت ربات: ${statusText}</div>`;
-            html += `<table>
-                            <tr>
-                                <th>وضعیت ورود</th>
-                                <td>${
-                                  data.logged_in ? "وارد شده" : "وارد نشده"
-                                }</td>
-                            </tr>
-                            <tr>
-                                <th>نشست فعال</th>
-                                <td>${data.session_active ? "بله" : "خیر"}</td>
-                            </tr>
-                            <tr>
-                                <th>آخرین فعالیت</th>
-                                <td>${
-                                  data.last_activity
-                                    ? formatDate(data.last_activity)
-                                    : "بدون فعالیت"
-                                }</td>
-                            </tr>
-                        </table>`;
-
-            html += `<h4>محدودیت‌های روزانه</h4>
-                        <table>
-                            <tr>
-                                <th>فالو</th>
-                                <td>${data.daily_limits.follows}</td>
-                            </tr>
-                            <tr>
-                                <th>آنفالو</th>
-                                <td>${data.daily_limits.unfollows}</td>
-                            </tr>
-                            <tr>
-                                <th>لایک</th>
-                                <td>${data.daily_limits.likes}</td>
-                            </tr>
-                            <tr>
-                                <th>کامنت</th>
-                                <td>${data.daily_limits.comments}</td>
-                            </tr>
-                            <tr>
-                                <th>پیام مستقیم</th>
-                                <td>${data.daily_limits.directs}</td>
-                            </tr>
-                            <tr>
-                                <th>واکنش استوری</th>
-                                <td>${data.daily_limits.story_reactions}</td>
-                            </tr>
-                        </table>`;
-
-            document.getElementById("statusContainer").innerHTML = html;
-          })
-          .catch((error) => {
-            console.error("Error:", error);
-            document.getElementById("statusContainer").innerHTML =
-              '<div class="status stopped">خطا در دریافت وضعیت</div>';
-          });
-      }
-
-      // Function to get recent activities
-      function getActivities() {
-        fetch("/api/activities?period=today&page=1&size=10")
-          .then((response) => response.json())
-          .then((data) => {
-            if (data.activities.length === 0) {
-              document.getElementById("activitiesContainer").innerHTML =
-                "<p>امروز هیچ فعالیتی ثبت نشده است.</p>";
-              return;
-            }
-
-            let html = `<table>
-                            <tr>
-                                <th>نوع فعالیت</th>
-                                <th>کاربر هدف</th>
-                                <th>وضعیت</th>
-                                <th>زمان</th>
-                            </tr>`;
-
-            data.activities.forEach((activity) => {
-              html += `<tr>
-                                <td>${translateActivityType(
-                                  activity.activity_type
-                                )}</td>
-                                <td>${activity.target_user_username}</td>
-                                <td>${
-                                  activity.status === "success"
-                                    ? "موفق"
-                                    : "ناموفق"
-                                }</td>
-                                <td>${formatDate(activity.created_at)}</td>
-                            </tr>`;
-            });
-
-            html += `</table>`;
-            document.getElementById("activitiesContainer").innerHTML = html;
-          })
-          .catch((error) => {
-            console.error("Error:", error);
-            document.getElementById("activitiesContainer").innerHTML =
-              "<p>خطا در دریافت فعالیت‌ها</p>";
-          });
-      }
-
-      // Function to translate activity types to Persian
       function translateActivityType(type) {
         const translations = {
           follow: "فالو",
@@ -342,10 +888,562 @@
         return translations[type] || type;
       }
 
-      // Get status on page load
-      window.onload = function () {
+      function getProgressClass(percentage) {
+        if (percentage < 40) return "progress-low";
+        if (percentage < 75) return "progress-medium";
+        return "progress-high";
+      }
+
+      // Update current date and time
+      function updateDateTime() {
+        const now = new Date();
+        document.getElementById("currentDate").textContent =
+          new Intl.DateTimeFormat("fa-IR", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          }).format(now);
+
+        document.getElementById("currentTime").textContent =
+          new Intl.DateTimeFormat("fa-IR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }).format(now);
+      }
+
+      // Tab switching functionality
+      document.addEventListener("click", function (e) {
+        if (e.target.classList.contains("tab")) {
+          const tabContainer = e.target.parentElement;
+          const tabName = e.target.dataset.tab;
+
+          // Remove active class from all tabs in this container
+          tabContainer.querySelectorAll(".tab").forEach((tab) => {
+            tab.classList.remove("active");
+          });
+
+          // Add active class to clicked tab
+          e.target.classList.add("active");
+
+          // Update content based on active tab
+          if (tabContainer.closest(".panel").querySelector("#statsContainer")) {
+            getStats(tabName);
+          } else if (
+            tabContainer.closest(".panel").querySelector("#activitiesContainer")
+          ) {
+            getActivities(tabName);
+          }
+        }
+      });
+
+      // Function to start the bot
+      function startBot() {
+        document.getElementById("botStatusContainer").innerHTML =
+          '<div class="loading"></div>';
+        fetch("/api/control", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "start" }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            showNotification(data.message, data.success ? "success" : "error");
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            showNotification("خطا در ارتباط با سرور", "error");
+            document.getElementById("botStatusContainer").innerHTML =
+              createErrorMessage("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to stop the bot
+      function stopBot() {
+        document.getElementById("botStatusContainer").innerHTML =
+          '<div class="loading"></div>';
+        fetch("/api/control", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "stop" }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            showNotification(data.message, data.success ? "success" : "error");
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            showNotification("خطا در ارتباط با سرور", "error");
+            document.getElementById("botStatusContainer").innerHTML =
+              createErrorMessage("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to restart the bot
+      function restartBot() {
+        document.getElementById("botStatusContainer").innerHTML =
+          '<div class="loading"></div>';
+        fetch("/api/restart-bot")
+          .then((response) => response.json())
+          .then((data) => {
+            showNotification(data.message, data.success ? "success" : "error");
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            showNotification("خطا در ارتباط با سرور", "error");
+            document.getElementById("botStatusContainer").innerHTML =
+              createErrorMessage("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to force unlock the bot
+      function forceUnlock() {
+        document.getElementById("botStatusContainer").innerHTML =
+          '<div class="loading"></div>';
+        fetch("/api/force-unlock")
+          .then((response) => response.json())
+          .then((data) => {
+            showNotification(data.message, data.success ? "success" : "error");
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            showNotification("خطا در ارتباط با سرور", "error");
+            document.getElementById("botStatusContainer").innerHTML =
+              createErrorMessage("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to get bot status
+      function getStatus() {
+        document.getElementById("botStatusContainer").innerHTML =
+          '<div class="loading"></div>';
+        document.getElementById("limitsContainer").innerHTML =
+          '<div class="loading"></div>';
+
+        fetch("/api/status")
+          .then((response) => response.json())
+          .then((data) => {
+            renderBotStatus(data);
+            renderLimits(data);
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("botStatusContainer").innerHTML =
+              createErrorMessage("خطا در دریافت وضعیت ربات");
+            document.getElementById("limitsContainer").innerHTML =
+              createErrorMessage("خطا در دریافت محدودیت‌های روزانه");
+          });
+      }
+
+      // Function to get stats
+      function getStats(period = "daily") {
+        document.getElementById("statsContainer").innerHTML =
+          '<div class="loading"></div>';
+
+        fetch("/api/stats", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ period: period }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            renderStats(data, period);
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("statsContainer").innerHTML =
+              createErrorMessage("خطا در دریافت آمار");
+          });
+      }
+
+      // Function to get activities
+      function getActivities(period = "today") {
+        document.getElementById("activitiesContainer").innerHTML =
+          '<div class="loading"></div>';
+
+        let apiPeriod = "today";
+        if (period === "yesterday") apiPeriod = "yesterday";
+        else if (period === "week") apiPeriod = "this_week";
+
+        fetch(`/api/activities?period=${apiPeriod}&page=1&size=10`)
+          .then((response) => response.json())
+          .then((data) => {
+            renderActivities(data, period);
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("activitiesContainer").innerHTML =
+              createErrorMessage("خطا در دریافت فعالیت‌ها");
+          });
+      }
+
+      // Render bot status
+      function renderBotStatus(data) {
+        const statusClass = data.running ? "status-running" : "status-stopped";
+        const statusText = data.running ? "در حال اجرا" : "متوقف شده";
+
+        let nextActivityTime = null;
+        if (data.running && data.last_activity) {
+          // تخمین زمان فعالیت بعدی (تقریبا هر 15 دقیقه)
+          const lastActivity = new Date(data.last_activity);
+          nextActivityTime = new Date(lastActivity.getTime() + 15 * 60 * 1000);
+        }
+
+        const html = `
+          <div class="status-indicator ${statusClass}">
+            <div class="status-indicator-icon"></div>
+            وضعیت ربات: ${statusText}
+          </div>
+          
+          <div class="bot-details">
+            <div class="info-card">
+              <div class="info-card-title">وضعیت ورود</div>
+              <div class="info-card-value">${data.logged_in ? "✓" : "✗"}</div>
+              <div class="info-card-footer">${
+                data.logged_in ? "متصل به اینستاگرام" : "عدم اتصال"
+              }</div>
+            </div>
+            
+            <div class="info-card">
+              <div class="info-card-title">نشست فعال</div>
+              <div class="info-card-value">${
+                data.session_active ? "✓" : "✗"
+              }</div>
+              <div class="info-card-footer">${
+                data.session_active ? "نشست معتبر" : "نیاز به ورود مجدد"
+              }</div>
+            </div>
+            
+            <div class="info-card">
+              <div class="info-card-title">آخرین فعالیت</div>
+              <div class="info-card-value">${
+                data.last_activity
+                  ? formatTimeElapsed(data.last_activity)
+                  : "بدون فعالیت"
+              }</div>
+              <div class="info-card-footer">${
+                data.last_activity ? formatTime(data.last_activity) : "-"
+              }</div>
+            </div>
+          </div>
+          
+          ${
+            nextActivityTime
+              ? `
+          <div class="next-activity">
+            <strong>زمان تخمینی فعالیت بعدی:</strong> ${formatTime(
+              nextActivityTime
+            )} (${formatTimeElapsed(nextActivityTime)})
+          </div>
+          `
+              : ""
+          }
+        `;
+
+        document.getElementById("botStatusContainer").innerHTML = html;
+      }
+
+      // Render daily limits
+      function renderLimits(data) {
+        const limits = data.daily_limits;
+
+        // Hardcoded limits from config.py
+        const maxLimits = {
+          follows: 20,
+          unfollows: 20,
+          likes: 50,
+          comments: 10,
+          directs: 5,
+          story_reactions: 10,
+        };
+
+        let html = `
+          <table class="limits-table">
+            <tr>
+              <th>نوع فعالیت</th>
+              <th>تعداد انجام شده</th>
+              <th>محدودیت روزانه</th>
+              <th>وضعیت</th>
+            </tr>
+        `;
+
+        for (const [key, value] of Object.entries(limits)) {
+          const maxValue = maxLimits[key] || 100;
+          const percentage = (value / maxValue) * 100;
+          const progressClass = getProgressClass(percentage);
+
+          html += `
+            <tr>
+              <td>${translateActivityType(key)}</td>
+              <td>${value}</td>
+              <td>${maxValue}</td>
+              <td style="width: 40%">
+                <div class="progress-bar-container">
+                  <div class="progress-bar ${progressClass}" style="width: ${percentage}%"></div>
+                </div>
+                <div style="font-size: 12px; margin-top: 5px; text-align: left; direction: ltr;">${percentage.toFixed(
+                  1
+                )}%</div>
+              </td>
+            </tr>
+          `;
+        }
+
+        html += `</table>`;
+
+        document.getElementById("limitsContainer").innerHTML = html;
+      }
+
+      // Render statistics
+      function renderStats(data, period) {
+        let periodText = "روزانه";
+        if (period === "weekly") periodText = "هفتگی";
+        else if (period === "monthly") periodText = "ماهانه";
+        else if (period === "six_months") periodText = "شش ماهه";
+
+        let html = `
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-card-title">فالو</div>
+              <div class="stat-card-value">${data.follows}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">آنفالو</div>
+              <div class="stat-card-value">${data.unfollows}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">لایک</div>
+              <div class="stat-card-value">${data.likes}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">کامنت</div>
+              <div class="stat-card-value">${data.comments}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">پیام مستقیم</div>
+              <div class="stat-card-value">${data.directs}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">واکنش استوری</div>
+              <div class="stat-card-value">${data.story_reactions}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">فالوئرهای جدید</div>
+              <div class="stat-card-value">${data.followers_gained}</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-card-title">از دست رفته</div>
+              <div class="stat-card-value">${data.followers_lost}</div>
+            </div>
+          </div>
+          
+          <div class="chart-container">
+            <canvas id="activityChart"></canvas>
+          </div>
+        `;
+
+        document.getElementById("statsContainer").innerHTML = html;
+
+        // Create chart
+        const activityData = [
+          data.follows,
+          data.unfollows,
+          data.likes,
+          data.comments,
+          data.directs,
+          data.story_reactions,
+        ];
+
+        createActivityChart(activityData, periodText);
+      }
+
+      // Create activity chart
+      function createActivityChart(data, periodText) {
+        const ctx = document.getElementById("activityChart").getContext("2d");
+
+        // Destroy previous chart if it exists
+        if (window.activityChart) {
+          window.activityChart.destroy();
+        }
+
+        window.activityChart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: [
+              "فالو",
+              "آنفالو",
+              "لایک",
+              "کامنت",
+              "پیام مستقیم",
+              "واکنش استوری",
+            ],
+            datasets: [
+              {
+                label: `تعداد فعالیت‌های ${periodText}`,
+                data: data,
+                backgroundColor: [
+                  "rgba(54, 162, 235, 0.6)",
+                  "rgba(255, 99, 132, 0.6)",
+                  "rgba(255, 206, 86, 0.6)",
+                  "rgba(75, 192, 192, 0.6)",
+                  "rgba(153, 102, 255, 0.6)",
+                  "rgba(255, 159, 64, 0.6)",
+                ],
+                borderColor: [
+                  "rgba(54, 162, 235, 1)",
+                  "rgba(255, 99, 132, 1)",
+                  "rgba(255, 206, 86, 1)",
+                  "rgba(75, 192, 192, 1)",
+                  "rgba(153, 102, 255, 1)",
+                  "rgba(255, 159, 64, 1)",
+                ],
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+                align: "start",
+                labels: {
+                  font: {
+                    family: "Tahoma, Arial, sans-serif",
+                  },
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    return `تعداد: ${context.raw}`;
+                  },
+                },
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  precision: 0,
+                },
+              },
+            },
+          },
+        });
+      }
+
+      // Render activities
+      function renderActivities(data, period) {
+        if (!data.activities || data.activities.length === 0) {
+          document.getElementById(
+            "activitiesContainer"
+          ).innerHTML = `<p>در این بازه زمانی هیچ فعالیتی ثبت نشده است.</p>`;
+          return;
+        }
+
+        let periodText = "امروز";
+        if (period === "yesterday") periodText = "دیروز";
+        else if (period === "week") periodText = "این هفته";
+
+        let html = `
+          <table class="activities-table">
+            <tr>
+              <th>نوع فعالیت</th>
+              <th>کاربر هدف</th>
+              <th>وضعیت</th>
+              <th>زمان</th>
+              <th>جزئیات</th>
+            </tr>
+        `;
+
+        data.activities.forEach((activity) => {
+          const statusClass =
+            activity.status === "success"
+              ? "activity-success"
+              : "activity-failed";
+          const statusText = activity.status === "success" ? "موفق" : "ناموفق";
+
+          html += `
+            <tr>
+              <td>${translateActivityType(activity.activity_type)}</td>
+              <td>@${activity.target_user_username}</td>
+              <td><span class="activity-status ${statusClass}">${statusText}</span></td>
+              <td>${formatTime(activity.created_at)}</td>
+              <td>${
+                activity.details
+                  ? activity.details.substring(0, 30) +
+                    (activity.details.length > 30 ? "..." : "")
+                  : "-"
+              }</td>
+            </tr>
+          `;
+        });
+
+        html += `</table>`;
+
+        if (data.total > data.activities.length) {
+          html += `
+            <div style="text-align: center; margin-top: 15px;">
+              <span style="font-size: 13px; color: var(--gray-color);">نمایش ${data.activities.length} فعالیت از ${data.total} فعالیت در ${periodText}</span>
+            </div>
+          `;
+        }
+
+        document.getElementById("activitiesContainer").innerHTML = html;
+      }
+
+      // Create error message
+      function createErrorMessage(message) {
+        return `
+          <div class="error-message">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            ${message}
+          </div>
+        `;
+      }
+
+      // Show notification
+      function showNotification(message, type = "success") {
+        // Simple notification function
+        // You can replace this with a more sophisticated notification system
+        alert(message);
+      }
+
+      // Initialize the page
+      function initialize() {
+        updateDateTime();
+        setInterval(updateDateTime, 60000);
+
         getStatus();
-      };
+        getStats();
+        getActivities();
+      }
+
+      // Run on page load
+      window.onload = initialize;
     </script>
   </body>
 </html>
