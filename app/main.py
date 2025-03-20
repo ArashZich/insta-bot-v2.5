@@ -67,6 +67,8 @@ async def read_root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup"""
+    global routes_module  # اضافه کردن این خط
+
     retry_count = 0
     max_retries = 5
 
@@ -77,7 +79,6 @@ async def startup_event():
                 # Create database tables
                 create_tables()
                 logger.info("Database tables created successfully")
-                break  # اگر موفق شد از حلقه خارج شویم
             except Exception as db_error:
                 logger.error(
                     f"Database initialization error (attempt {retry_count+1}/{max_retries}): {str(db_error)}")
@@ -97,12 +98,16 @@ async def startup_event():
 
                 # Make bot scheduler available to API routes
                 routes_module.bot_scheduler = bot_scheduler
+                logger.info("Bot scheduler initialized and assigned to routes")
 
                 # اضافه کردن شروع خودکار بات - اجرای اتوماتیک
                 try:
                     logger.info("Starting bot automatically...")
-                    bot_scheduler.start()
-                    logger.info("Bot scheduler started automatically")
+                    if bot_scheduler.initialize():  # اطمینان از مقداردهی اولیه
+                        bot_scheduler.start()
+                        logger.info("Bot scheduler started automatically")
+                    else:
+                        logger.error("Bot initialization failed")
                 except Exception as auto_start_error:
                     logger.error(
                         f"Error auto-starting bot: {str(auto_start_error)}")
@@ -111,7 +116,9 @@ async def startup_event():
 
             except Exception as e:
                 logger.error(f"Error initializing bot scheduler: {str(e)}")
-                # اینجا هم خطا را مدیریت کنید بدون توقف کامل برنامه
+                # ایجاد یک نمونه خالی برای جلوگیری از خطای None
+                routes_module.bot_scheduler = BotScheduler(next(get_db()))
+                logger.info("Created empty bot scheduler as fallback")
 
             break  # اگر به اینجا رسیدیم، از حلقه خارج شویم
 
@@ -125,7 +132,19 @@ async def startup_event():
             else:
                 logger.critical(
                     "Failed to initialize application after multiple attempts")
+                # ایجاد یک نمونه خالی برای جلوگیری از خطای None
+                try:
+                    routes_module.bot_scheduler = BotScheduler(next(get_db()))
+                    logger.info(
+                        "Created empty bot scheduler as fallback after failures")
+                except Exception as fallback_error:
+                    logger.critical(
+                        f"Even fallback creation failed: {str(fallback_error)}")
                 break
+
+    # اضافه کردن لاگ برای بررسی وضعیت نهایی
+    logger.info(
+        f"Startup completed. Bot scheduler initialized: {routes_module.bot_scheduler is not None}")
 
 
 @app.on_event("shutdown")
