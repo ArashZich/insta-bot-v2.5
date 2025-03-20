@@ -176,12 +176,18 @@ class BotScheduler:
             if elapsed_time < self.rest_duration:
                 remaining = self.rest_duration - elapsed_time
                 logger.info(
-                    f"Still in rest period. {int(remaining)} seconds remaining. Skipping activity.")
+                    f"Still in rest period. {int(remaining)} seconds remaining until next activity. Started at {self.rest_start_time.strftime('%H:%M:%S')}.")
+                # اضافه کنیم که چه زمانی فعالیت بعدی شروع می‌شود
+                next_activity_time = self.rest_start_time + \
+                    timedelta(seconds=self.rest_duration)
+                logger.info(
+                    f"Next activity scheduled at approximately: {next_activity_time.strftime('%H:%M:%S')}")
                 return
             else:
                 # زمان استراحت تمام شده
                 self.is_resting = False
-                logger.info("Rest period completed. Resuming activities.")
+                logger.info(
+                    f"Rest period completed at {datetime.now().strftime('%H:%M:%S')}. Resuming activities.")
 
                 # اطمینان از آزاد بودن قفل
                 if self.lock.locked():
@@ -235,6 +241,10 @@ class BotScheduler:
                 activity = choose_random_activity()
 
             logger.info(f"Performing activity: {activity}")
+            # اضافه کردن تخمین زمان پایان فعالیت
+            estimated_completion_time = datetime.now() + timedelta(seconds=60)  # تخمین حدودی
+            logger.info(
+                f"Estimated completion time: {estimated_completion_time.strftime('%H:%M:%S')}")
 
             # Perform the selected activity
             if activity == "follow":
@@ -249,6 +259,12 @@ class BotScheduler:
                 self.perform_direct_activity()
             elif activity == "story_reaction":
                 self.perform_story_reaction_activity()
+
+            # محاسبه و لاگ زمان فعالیت بعدی
+            # بر اساس تنظیم interval در تابع start
+            next_activity_time = datetime.now() + timedelta(minutes=15)
+            logger.info(
+                f"Next scheduled activity will start at approximately: {next_activity_time.strftime('%H:%M:%S')}")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():

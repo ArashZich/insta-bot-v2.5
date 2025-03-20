@@ -27,15 +27,25 @@ def random_delay(min_delay=None, max_delay=None):
     max_delay = max_delay or MAX_DELAY_BETWEEN_ACTIONS
 
     delay = random.uniform(min_delay, max_delay)
-    logger.info(f"Taking a short break for {delay:.2f} seconds")
+    current_time = datetime.now()
+    end_time = current_time + timedelta(seconds=delay)
+
+    logger.info(
+        f"Taking a short break for {delay:.2f} seconds, from {current_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}")
     time.sleep(delay)
+    logger.info(
+        f"Short break completed at {datetime.now().strftime('%H:%M:%S')}")
     return delay
 
 
 def should_rest():
     """Determine if the bot should take a longer rest based on probability"""
     # 10% chance of taking a rest
-    return random.random() < 0.1
+    rest_probability = 0.1
+    should_take_rest = random.random() < rest_probability
+    logger.info(
+        f"Checking if bot should rest... Rest probability: {rest_probability*100}%. Result: {should_take_rest}")
+    return should_take_rest
 
 
 def take_rest():
@@ -45,7 +55,14 @@ def take_rest():
     max_rest = REST_PERIOD_MAX * 60
 
     rest_time = random.uniform(min_rest, max_rest)
-    logger.info(f"Taking a longer rest for {rest_time/60:.2f} minutes")
+    rest_minutes = rest_time / 60
+    current_time = datetime.now()
+    end_time = current_time + timedelta(seconds=rest_time)
+
+    logger.info(
+        f"Taking a longer rest for {rest_minutes:.2f} minutes, starting at {current_time.strftime('%H:%M:%S')}")
+    logger.info(
+        f"Rest will end at approximately: {end_time.strftime('%H:%M:%S')}")
 
     # Just return the rest time without actually sleeping
     # The scheduler will handle the rest period using its own mechanism
@@ -54,7 +71,18 @@ def take_rest():
 
 def choose_random_activity():
     """Choose a random activity from the available activities"""
-    return random.choice(ACTIVITIES)
+    activity = random.choice(ACTIVITIES)
+    # اضافه کردن لاگ برای نمایش همه فعالیت‌های ممکن و فعالیت انتخاب شده
+    logger.info(
+        f"Choosing random activity from available activities: {ACTIVITIES}")
+    logger.info(f"Selected activity: {activity}")
+
+    # اضافه کردن اطلاعات محدودیت‌های روزانه
+    logger.info(f"Daily limits: Follow={DAILY_FOLLOW_LIMIT}, Unfollow={DAILY_UNFOLLOW_LIMIT}, "
+                f"Like={DAILY_LIKE_LIMIT}, Comment={DAILY_COMMENT_LIMIT}, "
+                f"Direct={DAILY_DIRECT_LIMIT}, Story={DAILY_STORY_REACTION_LIMIT}")
+
+    return activity
 
 
 def get_daily_limits_status(db: Session):

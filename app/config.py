@@ -29,12 +29,17 @@ DAILY_DIRECT_LIMIT = int(os.getenv("DAILY_DIRECT_LIMIT", 5))  # کاهش به 5
 DAILY_STORY_REACTION_LIMIT = int(
     os.getenv("DAILY_STORY_REACTION_LIMIT", 10))  # کاهش به 10
 
-# Bot behavior - تنظیم زمان استراحت به مقادیر کمتر
+# Bot behavior - تنظیم زمان استراحت
 RANDOM_ACTIVITY_MODE = os.getenv(
     "RANDOM_ACTIVITY_MODE", "True").lower() == "true"
-REST_PERIOD_MIN = float(
-    os.getenv("REST_PERIOD_MIN", "0.5"))  # کاهش به 30 دقیقه
-REST_PERIOD_MAX = float(os.getenv("REST_PERIOD_MAX", "2"))  # کاهش به 2 ساعت
+
+# مقادیر به ساعت - می‌توانید برای تست کاهش دهید
+# 0.5 ساعت = 30 دقیقه = 1800 ثانیه
+# 2 ساعت = 120 دقیقه = 7200 ثانیه
+# تغییر به حدود 5 دقیقه
+REST_PERIOD_MIN = float(os.getenv("REST_PERIOD_MIN", "0.08"))
+# تغییر به حدود 15 دقیقه
+REST_PERIOD_MAX = float(os.getenv("REST_PERIOD_MAX", "0.25"))
 
 # API settings
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
