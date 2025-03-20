@@ -1,6 +1,9 @@
+import os
 import uvicorn
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
+from starlette.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.models.database import create_tables, get_db
@@ -13,6 +16,8 @@ from app.logger import setup_logger
 # Setup logger
 logger = setup_logger("main")
 
+# ساخت پوشه استاتیک اگر وجود ندارد
+os.makedirs("app/static", exist_ok=True)
 
 # Create FastAPI app
 app = FastAPI(
@@ -47,6 +52,16 @@ async def filter_suspicious_requests(request: Request, call_next):
 # Add API routes
 app.include_router(api_router)
 
+# اضافه کردن مسیر فایل‌های استاتیک
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Route for root path - redirect to control panel
+
+
+@app.get("/")
+async def read_root():
+    return FileResponse("app/static/index.html")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -70,7 +85,15 @@ async def startup_event():
             # Make bot scheduler available to API routes
             routes_module.bot_scheduler = bot_scheduler
 
-            logger.info("Bot scheduler initialized but not auto-started")
+            # اضافه کردن شروع خودکار بات - اجرای اتوماتیک
+            try:
+                logger.info("Starting bot automatically...")
+                bot_scheduler.start()
+                logger.info("Bot scheduler started automatically")
+            except Exception as auto_start_error:
+                logger.error(
+                    f"Error auto-starting bot: {str(auto_start_error)}")
+                logger.info("Bot scheduler initialized but not auto-started")
 
         except Exception as e:
             logger.error(f"Error initializing bot scheduler: {str(e)}")

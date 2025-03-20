@@ -1,209 +1,432 @@
-import time
-import random
-import logging
-from datetime import datetime, timedelta
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from typing import Optional, List
+from datetime import datetime, timedelta
+from enum import Enum
+import time
+import requests
 
-from app.models.database import DailyStats
-from app.config import MIN_DELAY_BETWEEN_ACTIONS, MAX_DELAY_BETWEEN_ACTIONS
-from app.config import REST_PERIOD_MIN, REST_PERIOD_MAX, ACTIVITIES
-from app.logger import setup_logger
+from app.models.database import get_db, BotActivity, UserFollowing, BotSession, DailyStats
+from app.bot.utils import get_activity_stats, get_daily_limits_status
+from app.api.schemas import (
+    StatsRequest,
+    StatsResponse,
+    BotStatusResponse,
+    BotControlRequest,
+    BotControlResponse,
+    ActivityCount,
+    ActivityItem,
+    ActivityListResponse,
+    FollowingItem,
+    FollowingListResponse
+)
 
-# Setup logger
-logger = setup_logger("utils")
-
-
-def random_delay():
-    """Add a random delay between actions to make bot behavior more human-like"""
-    # افزایش مقدار تاخیر به صورت موقت (بیشتر از مقادیر تنظیم شده)
-    min_delay = max(MIN_DELAY_BETWEEN_ACTIONS, 60)  # حداقل 60 ثانیه
-    max_delay = max(MAX_DELAY_BETWEEN_ACTIONS, 180)  # حداقل 180 ثانیه
-
-    delay = random.randint(min_delay, max_delay)
-    logger.info(f"Waiting for {delay} seconds before next action")
-    time.sleep(delay)
-
-
-def should_rest():
-    """Decide if the bot should take a break based on time of day and randomness"""
-    # افزایش احتمال استراحت به 20%
-    if random.random() < 0.2:  # 20% chance of random rest
-        logger.info("Taking a random rest period based on chance")
-        return True
-
-    # Check time of day - avoid late night activity (more suspicious)
-    current_hour = datetime.now().hour
-    if 1 <= current_hour <= 7:  # Between 1 AM and 7 AM
-        logger.info(f"Taking a rest because current hour is {current_hour}")
-        return True
-
-    return False
+# تعریف enum برای action در BotControlRequest
 
 
-def take_rest():
-    """Pause bot activity for a rest period"""
-    # افزایش زمان استراحت
-    rest_hours = random.uniform(
-        max(REST_PERIOD_MIN, 4),  # حداقل 4 ساعت
-        max(REST_PERIOD_MAX, 8)   # حداقل 8 ساعت
+class BotAction(str, Enum):
+    start = "start"
+    stop = "stop"
+    restart = "restart"
+
+# تعریف enum برای period در StatsRequest
+
+
+class StatPeriod(str, Enum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    six_months = "six_months"
+
+# تعریف enum برای activity_type
+
+
+class ActivityType(str, Enum):
+    follow = "follow"
+    unfollow = "unfollow"
+    like = "like"
+    comment = "comment"
+    direct = "direct"
+    story_reaction = "story_reaction"
+
+# تعریف enum برای status
+
+
+class ActivityStatus(str, Enum):
+    success = "success"
+    failed = "failed"
+
+# تعریف enum برای period فیلتر
+
+
+class FilterPeriod(str, Enum):
+    today = "today"
+    yesterday = "yesterday"
+    this_week = "this_week"
+    last_week = "last_week"
+    this_month = "this_month"
+    last_month = "last_month"
+    last_7_days = "last_7_days"
+    last_30_days = "last_30_days"
+    last_90_days = "last_90_days"
+    this_year = "this_year"
+    all_time = "all_time"
+
+
+# اصلاح فایل schemas.py برای BotControlRequest
+
+# این کلاس را می‌توانید در فایل schemas.py بازنویسی کنید
+
+class BotControlRequest(BaseModel):
+    action: BotAction
+
+# این کلاس را می‌توانید در فایل schemas.py بازنویسی کنید
+
+
+class StatsRequest(BaseModel):
+    period: StatPeriod
+
+
+# Create the API router
+router = APIRouter(prefix="/api", tags=["bot"])
+
+# Reference to bot scheduler will be set in main.py
+bot_scheduler = None
+
+
+@router.get("/status", response_model=BotStatusResponse)
+def get_bot_status(db: Session = Depends(get_db)):
+    """Get current bot status"""
+    # Check if bot is running
+    running = bot_scheduler.running if bot_scheduler else False
+
+    # Check if logged in
+    logged_in = bot_scheduler.client.logged_in if bot_scheduler else False
+
+    # Check if session is active
+    session_active = False
+    if db:
+        session = db.query(BotSession).filter(
+            BotSession.is_active == True
+        ).first()
+        session_active = session is not None
+
+    # Get daily limits
+    daily_limits = get_daily_limits_status(db)
+
+    # Get last activity
+    last_activity = None
+    if db:
+        activity = db.query(BotActivity).order_by(
+            BotActivity.created_at.desc()
+        ).first()
+        if activity:
+            last_activity = activity.created_at
+
+    return BotStatusResponse(
+        running=running,
+        logged_in=logged_in,
+        session_active=session_active,
+        daily_limits=ActivityCount(**daily_limits),
+        last_activity=last_activity
     )
-    rest_seconds = int(rest_hours * 3600)
-    logger.info(
-        f"Taking a rest for {rest_hours:.2f} hours ({rest_seconds} seconds)")
-    time.sleep(rest_seconds)
 
 
-def choose_random_activity():
-    """Choose a random activity from available activities"""
-    # اولویت دادن به فعالیت‌های کم‌خطرتر (لایک و مشاهده استوری)
-    weights = {
-        "follow": 1,
-        "unfollow": 1,
-        "like": 4,      # احتمال بیشتر
-        "comment": 1,
-        "direct": 1,
-        "story_reaction": 3  # احتمال بیشتر
-    }
+@router.post("/control", response_model=BotControlResponse)
+def control_bot(request: BotControlRequest):
+    """Control bot (start, stop, restart)"""
+    if not bot_scheduler:
+        raise HTTPException(
+            status_code=503, detail="Bot scheduler not initialized")
 
-    activities = []
-    for activity, weight in weights.items():
-        if activity in ACTIVITIES:
-            activities.extend([activity] * weight)
+    action = request.action
 
-    return random.choice(activities)
+    if action == BotAction.start:
+        if bot_scheduler.running:
+            return BotControlResponse(
+                success=False,
+                message="Bot is already running",
+                status=True
+            )
+        else:
+            success = bot_scheduler.start()
+            return BotControlResponse(
+                success=success,
+                message="Bot started successfully" if success else "Failed to start bot",
+                status=success
+            )
+
+    elif action == BotAction.stop:
+        if not bot_scheduler.running:
+            return BotControlResponse(
+                success=False,
+                message="Bot is not running",
+                status=False
+            )
+        else:
+            bot_scheduler.stop()
+            return BotControlResponse(
+                success=True,
+                message="Bot stopped successfully",
+                status=False
+            )
+
+    elif action == BotAction.restart:
+        if bot_scheduler.running:
+            bot_scheduler.stop()
+
+        success = bot_scheduler.start()
+        return BotControlResponse(
+            success=success,
+            message="Bot restarted successfully" if success else "Failed to restart bot",
+            status=success
+        )
 
 
-def get_daily_limits_status(db: Session):
-    """Get the current status of daily limits"""
-    today = datetime.utcnow().date()
-    stats = db.query(DailyStats).filter(
-        DailyStats.date >= today
-    ).first()
+@router.get("/restart-bot")
+def restart_bot():
+    """Easy endpoint to restart the bot without needing a POST request with JSON body"""
+    try:
+        # ابتدا بات را متوقف می‌کنیم (اگر در حال اجرا باشد)
+        if bot_scheduler and bot_scheduler.running:
+            bot_scheduler.stop()
 
-    if not stats:
-        # No stats for today yet
+        # چند لحظه صبر می‌کنیم
+        time.sleep(2)
+
+        # سپس آن را دوباره راه‌اندازی می‌کنیم
+        success = False
+        message = "Bot scheduler not available"
+        status = False
+
+        if bot_scheduler:
+            success = bot_scheduler.start()
+            message = "Bot restarted successfully" if success else "Failed to restart bot"
+            status = success
+
+        # وضعیت جاری را در پاسخ برمی‌گردانیم
         return {
-            "follows": 0,
-            "unfollows": 0,
-            "likes": 0,
-            "comments": 0,
-            "directs": 0,
-            "story_reactions": 0
+            "success": success,
+            "message": message,
+            "status": status,
+            "details": "This is a GET endpoint that restarts the bot. You can check the current status at /api/status."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error restarting bot: {str(e)}",
+            "status": False
         }
 
-    return {
-        "follows": stats.follows_count,
-        "unfollows": stats.unfollows_count,
-        "likes": stats.likes_count,
-        "comments": stats.comments_count,
-        "directs": stats.directs_count,
-        "story_reactions": stats.story_reactions_count
-    }
+
+@router.post("/stats", response_model=StatsResponse)
+def get_stats(request: StatsRequest, db: Session = Depends(get_db)):
+    """Get bot statistics for a specific period"""
+    stats = get_activity_stats(db, request.period)
+    return StatsResponse(period=request.period, **stats)
 
 
-def get_activity_stats(db: Session, period='daily'):
-    """Get activity statistics for a given period"""
-    today = datetime.utcnow().date()
+def get_date_range_from_period(period: FilterPeriod):
+    """Convert period string to date range"""
+    now = datetime.utcnow()
+    if period == FilterPeriod.today:
+        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == FilterPeriod.yesterday:
+        start_date = (now - timedelta(days=1)).replace(hour=0,
+                                                       minute=0, second=0, microsecond=0)
+        end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == FilterPeriod.this_week:
+        # Get the start of the current week (Monday)
+        start_date = (now - timedelta(days=now.weekday())
+                      ).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == FilterPeriod.last_week:
+        # Get the start of the last week (Monday)
+        this_week_start = (now - timedelta(days=now.weekday())
+                           ).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = this_week_start - timedelta(days=7)
+        end_date = this_week_start
+    elif period == FilterPeriod.this_month:
+        # Get the start of the current month
+        start_date = now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == FilterPeriod.last_month:
+        # Get the start of the current month
+        this_month_start = now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0)
+        # Get the start of the last month (handle year change)
+        if this_month_start.month == 1:
+            start_date = this_month_start.replace(
+                year=this_month_start.year-1, month=12)
+        else:
+            start_date = this_month_start.replace(
+                month=this_month_start.month-1)
+        end_date = this_month_start
+    elif period == FilterPeriod.last_30_days:
+        start_date = now - timedelta(days=30)
+        end_date = now
+    elif period == FilterPeriod.last_90_days:
+        start_date = now - timedelta(days=90)
+        end_date = now
+    elif period == FilterPeriod.this_year:
+        start_date = now.replace(
+            month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    elif period == FilterPeriod.all_time:
+        start_date = datetime.min
+        end_date = now
+    else:  # FilterPeriod.last_7_days as default
+        start_date = now - timedelta(days=7)
+        end_date = now
 
-    if period == 'daily':
-        start_date = today
-    elif period == 'weekly':
-        start_date = today - timedelta(days=7)
-    elif period == 'monthly':
-        start_date = today - timedelta(days=30)
-    elif period == 'six_months':
-        start_date = today - timedelta(days=180)
-    else:
-        start_date = today
-
-    stats = db.query(DailyStats).filter(
-        DailyStats.date >= start_date
-    ).all()
-
-    # Initialize results
-    results = {
-        'follows': 0,
-        'unfollows': 0,
-        'likes': 0,
-        'comments': 0,
-        'directs': 0,
-        'story_reactions': 0,
-        'followers_gained': 0,
-        'followers_lost': 0,
-        'days': len(stats)
-    }
-
-    # Sum up all values
-    for stat in stats:
-        results['follows'] += stat.follows_count
-        results['unfollows'] += stat.unfollows_count
-        results['likes'] += stat.likes_count
-        results['comments'] += stat.comments_count
-        results['directs'] += stat.directs_count
-        results['story_reactions'] += stat.story_reactions_count
-        results['followers_gained'] += stat.followers_gained
-        results['followers_lost'] += stat.followers_lost
-
-    # Calculate averages
-    if results['days'] > 0:
-        results['avg_follows'] = results['follows'] / results['days']
-        results['avg_unfollows'] = results['unfollows'] / results['days']
-        results['avg_likes'] = results['likes'] / results['days']
-        results['avg_comments'] = results['comments'] / results['days']
-        results['avg_directs'] = results['directs'] / results['days']
-        results['avg_story_reactions'] = results['story_reactions'] / \
-            results['days']
-        results['avg_followers_gained'] = results['followers_gained'] / \
-            results['days']
-        results['avg_followers_lost'] = results['followers_lost'] / \
-            results['days']
-
-    return results
+    return start_date, end_date
 
 
-def update_follower_counts(client, db: Session):
-    """Update follower count changes in the database"""
+@router.get("/activities", response_model=ActivityListResponse)
+def get_activities(
+    activity_type: Optional[ActivityType] = None,
+    status: Optional[ActivityStatus] = None,
+    period: FilterPeriod = Query(
+        FilterPeriod.last_7_days, description="Time period filter"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Get bot activities with filtering options"""
+    query = db.query(BotActivity)
+
+    # Apply filters
+    if activity_type:
+        query = query.filter(BotActivity.activity_type == activity_type)
+
+    if status:
+        query = query.filter(BotActivity.status == status)
+
+    # Apply date filters using period
+    start_date, end_date = get_date_range_from_period(period)
+    query = query.filter(BotActivity.created_at >= start_date)
+    query = query.filter(BotActivity.created_at <= end_date)
+
+    # Count total matching records
+    total = query.count()
+
+    # Apply pagination
+    query = query.order_by(BotActivity.created_at.desc())
+    query = query.offset((page - 1) * size).limit(size)
+
+    # Convert to response model
+    activities = [
+        ActivityItem(
+            id=activity.id,
+            activity_type=activity.activity_type,
+            target_user_id=activity.target_user_id,
+            target_user_username=activity.target_user_username,
+            target_media_id=activity.target_media_id,
+            status=activity.status,
+            details=activity.details,
+            created_at=activity.created_at
+        )
+        for activity in query.all()
+    ]
+
+    return ActivityListResponse(
+        activities=activities,
+        total=total,
+        page=page,
+        size=size
+    )
+
+
+@router.get("/followings", response_model=FollowingListResponse)
+def get_followings(
+    is_following: Optional[bool] = None,
+    followed_back: Optional[bool] = None,
+    period: FilterPeriod = Query(
+        FilterPeriod.last_7_days, description="Time period filter"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Get user followings with filtering options"""
+    query = db.query(UserFollowing)
+
+    # Apply filters
+    if is_following is not None:
+        query = query.filter(UserFollowing.is_following == is_following)
+
+    if followed_back is not None:
+        query = query.filter(UserFollowing.followed_back == followed_back)
+
+    # Apply date filters using period
+    start_date, end_date = get_date_range_from_period(period)
+    query = query.filter(UserFollowing.followed_at >= start_date)
+    query = query.filter(UserFollowing.followed_at <= end_date)
+
+    # Count total matching records
+    total = query.count()
+
+    # Apply pagination
+    query = query.order_by(UserFollowing.followed_at.desc())
+    query = query.offset((page - 1) * size).limit(size)
+
+    # Convert to response model
+    followings = [
+        FollowingItem(
+            id=following.id,
+            user_id=following.user_id,
+            username=following.username,
+            followed_at=following.followed_at,
+            unfollowed_at=following.unfollowed_at,
+            is_following=following.is_following,
+            followed_back=following.followed_back
+        )
+        for following in query.all()
+    ]
+
+    return FollowingListResponse(
+        followings=followings,
+        total=total,
+        page=page,
+        size=size
+    )
+
+
+@router.get("/force-unlock")
+def force_unlock_bot():
+    """Force unlock the bot if it's stuck"""
     try:
-        # Get my user ID
-        user_id = client.user_id
+        if not bot_scheduler:
+            return {
+                "success": False,
+                "message": "Bot scheduler not initialized"
+            }
 
-        # Get my current follower count
-        user_info = client.user_info(user_id)
-        current_follower_count = user_info.follower_count
+        # ریست کردن قفل و وضعیت استراحت
+        if hasattr(bot_scheduler, 'is_resting'):
+            bot_scheduler.is_resting = False
 
-        # Get yesterday's stats to determine changes
-        yesterday = datetime.utcnow().date() - timedelta(days=1)
-        yesterday_stats = db.query(DailyStats).filter(
-            DailyStats.date >= yesterday,
-            DailyStats.date < datetime.utcnow().date()
-        ).first()
-
-        # Get or create today's stats
-        today = datetime.utcnow().date()
-        today_stats = db.query(DailyStats).filter(
-            DailyStats.date >= today
-        ).first()
-
-        if not today_stats:
-            today_stats = DailyStats(date=today)
-            db.add(today_stats)
-
-        # Calculate gains and losses if we have yesterday's data
-        if yesterday_stats:
-            previous_count = yesterday_stats.followers_gained - yesterday_stats.followers_lost
-
-            # Calculate the difference
-            difference = current_follower_count - previous_count
-
-            if difference > 0:
-                today_stats.followers_gained = difference
-            elif difference < 0:
-                today_stats.followers_lost = abs(difference)
-
-        db.commit()
-        logger.info(
-            f"Updated follower counts in database. Current followers: {current_follower_count}")
-
+        if hasattr(bot_scheduler, 'lock') and bot_scheduler.lock.locked():
+            try:
+                bot_scheduler.lock.release()
+                return {
+                    "success": True,
+                    "message": "Bot lock forcibly released"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Error releasing lock: {str(e)}"
+                }
+        else:
+            return {
+                "success": True,
+                "message": "Bot lock is not held, nothing to release"
+            }
     except Exception as e:
-        logger.error(f"Error updating follower counts: {str(e)}")
-        db.rollback()
+        return {
+            "success": False,
+            "message": f"Error force unlocking bot: {str(e)}"
+        }

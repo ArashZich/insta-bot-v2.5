@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>مدیریت ربات اینستاگرام</title>
+    <style>
+      body {
+        font-family: Tahoma, Arial, sans-serif;
+        background-color: #f9f9f9;
+        margin: 0;
+        padding: 20px;
+        direction: rtl;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+      }
+      h1,
+      h2 {
+        color: #333;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        background-color: #f5f5f5;
+      }
+      .card h3 {
+        margin-top: 0;
+        color: #444;
+      }
+      .button {
+        display: inline-block;
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        margin: 5px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        text-decoration: none;
+        text-align: center;
+      }
+      .button:hover {
+        background-color: #45a049;
+      }
+      .button.red {
+        background-color: #f44336;
+      }
+      .button.red:hover {
+        background-color: #d32f2f;
+      }
+      .button.blue {
+        background-color: #2196f3;
+      }
+      .button.blue:hover {
+        background-color: #0b7dda;
+      }
+      .status {
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+      .status.running {
+        background-color: #dff0d8;
+        color: #3c763d;
+      }
+      .status.stopped {
+        background-color: #f2dede;
+        color: #a94442;
+      }
+      pre {
+        background-color: #f5f5f5;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 10px;
+        overflow-x: auto;
+        direction: ltr;
+        text-align: left;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+      }
+      table,
+      th,
+      td {
+        border: 1px solid #ddd;
+      }
+      th,
+      td {
+        padding: 10px;
+        text-align: right;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      #statusContainer,
+      #activitiesContainer {
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>مدیریت ربات اینستاگرام</h1>
+
+      <div class="card">
+        <h3>کنترل ربات</h3>
+        <button class="button" onclick="startBot()">شروع ربات</button>
+        <button class="button red" onclick="stopBot()">توقف ربات</button>
+        <button class="button blue" onclick="restartBot()">
+          راه‌اندازی مجدد ربات
+        </button>
+        <button class="button blue" onclick="forceUnlock()">
+          آزادسازی اجباری قفل
+        </button>
+      </div>
+
+      <div class="card">
+        <h3>وضعیت ربات</h3>
+        <button class="button blue" onclick="getStatus()">بررسی وضعیت</button>
+        <div id="statusContainer"></div>
+      </div>
+
+      <div class="card">
+        <h3>فعالیت‌های اخیر</h3>
+        <button class="button blue" onclick="getActivities()">
+          دریافت فعالیت‌های اخیر
+        </button>
+        <div id="activitiesContainer"></div>
+      </div>
+    </div>
+
+    <script>
+      // Function to format date
+      function formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleString("fa-IR");
+      }
+
+      // Function to start the bot
+      function startBot() {
+        fetch("/api/control", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "start" }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            alert(data.message);
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            alert("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to stop the bot
+      function stopBot() {
+        fetch("/api/control", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "stop" }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            alert(data.message);
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            alert("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to restart the bot
+      function restartBot() {
+        // Using the easy endpoint that doesn't require a JSON body
+        fetch("/api/restart-bot")
+          .then((response) => response.json())
+          .then((data) => {
+            alert(data.message);
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            alert("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to force unlock the bot
+      function forceUnlock() {
+        fetch("/api/force-unlock")
+          .then((response) => response.json())
+          .then((data) => {
+            alert(data.message);
+            getStatus();
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            alert("خطا در ارتباط با سرور");
+          });
+      }
+
+      // Function to get bot status
+      function getStatus() {
+        fetch("/api/status")
+          .then((response) => response.json())
+          .then((data) => {
+            const statusClass = data.running ? "running" : "stopped";
+            const statusText = data.running ? "در حال اجرا" : "متوقف شده";
+
+            let html = `<div class="status ${statusClass}">وضعیت ربات: ${statusText}</div>`;
+            html += `<table>
+                            <tr>
+                                <th>وضعیت ورود</th>
+                                <td>${
+                                  data.logged_in ? "وارد شده" : "وارد نشده"
+                                }</td>
+                            </tr>
+                            <tr>
+                                <th>نشست فعال</th>
+                                <td>${data.session_active ? "بله" : "خیر"}</td>
+                            </tr>
+                            <tr>
+                                <th>آخرین فعالیت</th>
+                                <td>${
+                                  data.last_activity
+                                    ? formatDate(data.last_activity)
+                                    : "بدون فعالیت"
+                                }</td>
+                            </tr>
+                        </table>`;
+
+            html += `<h4>محدودیت‌های روزانه</h4>
+                        <table>
+                            <tr>
+                                <th>فالو</th>
+                                <td>${data.daily_limits.follows}</td>
+                            </tr>
+                            <tr>
+                                <th>آنفالو</th>
+                                <td>${data.daily_limits.unfollows}</td>
+                            </tr>
+                            <tr>
+                                <th>لایک</th>
+                                <td>${data.daily_limits.likes}</td>
+                            </tr>
+                            <tr>
+                                <th>کامنت</th>
+                                <td>${data.daily_limits.comments}</td>
+                            </tr>
+                            <tr>
+                                <th>پیام مستقیم</th>
+                                <td>${data.daily_limits.directs}</td>
+                            </tr>
+                            <tr>
+                                <th>واکنش استوری</th>
+                                <td>${data.daily_limits.story_reactions}</td>
+                            </tr>
+                        </table>`;
+
+            document.getElementById("statusContainer").innerHTML = html;
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("statusContainer").innerHTML =
+              '<div class="status stopped">خطا در دریافت وضعیت</div>';
+          });
+      }
+
+      // Function to get recent activities
+      function getActivities() {
+        fetch("/api/activities?period=today&page=1&size=10")
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.activities.length === 0) {
+              document.getElementById("activitiesContainer").innerHTML =
+                "<p>امروز هیچ فعالیتی ثبت نشده است.</p>";
+              return;
+            }
+
+            let html = `<table>
+                            <tr>
+                                <th>نوع فعالیت</th>
+                                <th>کاربر هدف</th>
+                                <th>وضعیت</th>
+                                <th>زمان</th>
+                            </tr>`;
+
+            data.activities.forEach((activity) => {
+              html += `<tr>
+                                <td>${translateActivityType(
+                                  activity.activity_type
+                                )}</td>
+                                <td>${activity.target_user_username}</td>
+                                <td>${
+                                  activity.status === "success"
+                                    ? "موفق"
+                                    : "ناموفق"
+                                }</td>
+                                <td>${formatDate(activity.created_at)}</td>
+                            </tr>`;
+            });
+
+            html += `</table>`;
+            document.getElementById("activitiesContainer").innerHTML = html;
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("activitiesContainer").innerHTML =
+              "<p>خطا در دریافت فعالیت‌ها</p>";
+          });
+      }
+
+      // Function to translate activity types to Persian
+      function translateActivityType(type) {
+        const translations = {
+          follow: "فالو",
+          unfollow: "آنفالو",
+          like: "لایک",
+          comment: "کامنت",
+          direct: "پیام مستقیم",
+          story_reaction: "واکنش استوری",
+        };
+        return translations[type] || type;
+      }
+
+      // Get status on page load
+      window.onload = function () {
+        getStatus();
+      };
+    </script>
+  </body>
+</html>

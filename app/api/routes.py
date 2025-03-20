@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timedelta
 from enum import Enum
+import time
+import requests
 
 from app.models.database import get_db, BotActivity, UserFollowing, BotSession, DailyStats
 from app.bot.utils import get_activity_stats, get_daily_limits_status
@@ -182,6 +184,42 @@ def control_bot(request: BotControlRequest):
         )
 
 
+@router.get("/restart-bot")
+def restart_bot():
+    """Easy endpoint to restart the bot without needing a POST request with JSON body"""
+    try:
+        # ابتدا بات را متوقف می‌کنیم (اگر در حال اجرا باشد)
+        if bot_scheduler and bot_scheduler.running:
+            bot_scheduler.stop()
+
+        # چند لحظه صبر می‌کنیم
+        time.sleep(2)
+
+        # سپس آن را دوباره راه‌اندازی می‌کنیم
+        success = False
+        message = "Bot scheduler not available"
+        status = False
+
+        if bot_scheduler:
+            success = bot_scheduler.start()
+            message = "Bot restarted successfully" if success else "Failed to restart bot"
+            status = success
+
+        # وضعیت جاری را در پاسخ برمی‌گردانیم
+        return {
+            "success": success,
+            "message": message,
+            "status": status,
+            "details": "This is a GET endpoint that restarts the bot. You can check the current status at /api/status."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error restarting bot: {str(e)}",
+            "status": False
+        }
+
+
 @router.post("/stats", response_model=StatsResponse)
 def get_stats(request: StatsRequest, db: Session = Depends(get_db)):
     """Get bot statistics for a specific period"""
@@ -354,3 +392,41 @@ def get_followings(
         page=page,
         size=size
     )
+
+
+@router.get("/force-unlock")
+def force_unlock_bot():
+    """Force unlock the bot if it's stuck"""
+    try:
+        if not bot_scheduler:
+            return {
+                "success": False,
+                "message": "Bot scheduler not initialized"
+            }
+
+        # ریست کردن قفل و وضعیت استراحت
+        if hasattr(bot_scheduler, 'is_resting'):
+            bot_scheduler.is_resting = False
+
+        if hasattr(bot_scheduler, 'lock') and bot_scheduler.lock.locked():
+            try:
+                bot_scheduler.lock.release()
+                return {
+                    "success": True,
+                    "message": "Bot lock forcibly released"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Error releasing lock: {str(e)}"
+                }
+        else:
+            return {
+                "success": True,
+                "message": "Bot lock is not held, nothing to release"
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error force unlocking bot: {str(e)}"
+        }
