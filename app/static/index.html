@@ -56,6 +56,9 @@
       .dashboard-metadata {
         font-size: 14px;
         color: var(--gray-color);
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
 
       .dashboard-grid {
@@ -543,6 +546,25 @@
         <div class="dashboard-metadata">
           تاریخ: <span id="currentDate">-</span> | ساعت:
           <span id="currentTime">-</span>
+          <button class="refresh-button" onclick="updateDateTime()">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21.5 2v6h-6"></path>
+              <path d="M2.5 12c0 5 4 9 9 9 2.5 0 4.9-1 6.6-2.7l3.4-3.3"></path>
+              <path d="M2 22v-6h6"></path>
+              <path d="M21.5 12c0-5-4-9-9-9-2.5 0-4.9 1-6.6 2.7L2.5 9"></path>
+            </svg>
+            بروزرسانی زمان
+          </button>
         </div>
       </div>
 
@@ -1100,55 +1122,53 @@
         }
 
         const html = `
-          <div class="status-indicator ${statusClass}">
-            <div class="status-indicator-icon"></div>
-            وضعیت ربات: ${statusText}
-          </div>
-          
-          <div class="bot-details">
-            <div class="info-card">
-              <div class="info-card-title">وضعیت ورود</div>
-              <div class="info-card-value">${data.logged_in ? "✓" : "✗"}</div>
-              <div class="info-card-footer">${
-                data.logged_in ? "متصل به اینستاگرام" : "عدم اتصال"
-              }</div>
-            </div>
-            
-            <div class="info-card">
-              <div class="info-card-title">نشست فعال</div>
-              <div class="info-card-value">${
-                data.session_active ? "✓" : "✗"
-              }</div>
-              <div class="info-card-footer">${
-                data.session_active ? "نشست معتبر" : "نیاز به ورود مجدد"
-              }</div>
-            </div>
-            
-            <div class="info-card">
-              <div class="info-card-title">آخرین فعالیت</div>
-              <div class="info-card-value">${
-                data.last_activity
-                  ? formatTimeElapsed(data.last_activity)
-                  : "بدون فعالیت"
-              }</div>
-              <div class="info-card-footer">${
-                data.last_activity ? formatTime(data.last_activity) : "-"
-              }</div>
-            </div>
-          </div>
-          
-          ${
-            nextActivityTime
-              ? `
-          <div class="next-activity">
-            <strong>زمان تخمینی فعالیت بعدی:</strong> ${formatTime(
-              nextActivityTime
-            )} (${formatTimeElapsed(nextActivityTime)})
-          </div>
-          `
-              : ""
-          }
-        `;
+    <div class="status-indicator ${statusClass}">
+      <div class="status-indicator-icon"></div>
+      وضعیت ربات: ${statusText}
+    </div>
+    
+    <div class="bot-details">
+      <div class="info-card">
+        <div class="info-card-title">وضعیت ورود</div>
+        <div class="info-card-value">${data.logged_in ? "✓" : "✗"}</div>
+        <div class="info-card-footer">${
+          data.logged_in ? "متصل به اینستاگرام" : "عدم اتصال"
+        }</div>
+      </div>
+      
+      <div class="info-card">
+        <div class="info-card-title">نشست فعال</div>
+        <div class="info-card-value">${data.session_active ? "✓" : "✗"}</div>
+        <div class="info-card-footer">${
+          data.session_active ? "نشست معتبر" : "نیاز به ورود مجدد"
+        }</div>
+      </div>
+      
+      <div class="info-card">
+        <div class="info-card-title">آخرین فعالیت</div>
+        <div class="info-card-value">${
+          data.last_activity
+            ? formatTimeElapsed(data.last_activity)
+            : "بدون فعالیت"
+        }</div>
+        <div class="info-card-footer">${
+          data.last_activity ? formatTime(data.last_activity) : "-"
+        }</div>
+      </div>
+    </div>
+    
+    ${
+      nextActivityTime
+        ? `
+    <div class="next-activity">
+      <strong>زمان تخمینی فعالیت بعدی:</strong> ${formatTime(
+        nextActivityTime
+      )} (${formatTimeElapsed(nextActivityTime)})
+    </div>
+    `
+        : ""
+    }
+  `;
 
         document.getElementById("botStatusContainer").innerHTML = html;
       }
@@ -1168,14 +1188,14 @@
         };
 
         let html = `
-          <table class="limits-table">
-            <tr>
-              <th>نوع فعالیت</th>
-              <th>تعداد انجام شده</th>
-              <th>محدودیت روزانه</th>
-              <th>وضعیت</th>
-            </tr>
-        `;
+    <table class="limits-table">
+      <tr>
+        <th>نوع فعالیت</th>
+        <th>تعداد انجام شده</th>
+        <th>محدودیت روزانه</th>
+        <th>وضعیت</th>
+      </tr>
+  `;
 
         for (const [key, value] of Object.entries(limits)) {
           const maxValue = maxLimits[key] || 100;
@@ -1183,20 +1203,20 @@
           const progressClass = getProgressClass(percentage);
 
           html += `
-            <tr>
-              <td>${translateActivityType(key)}</td>
-              <td>${value}</td>
-              <td>${maxValue}</td>
-              <td style="width: 40%">
-                <div class="progress-bar-container">
-                  <div class="progress-bar ${progressClass}" style="width: ${percentage}%"></div>
-                </div>
-                <div style="font-size: 12px; margin-top: 5px; text-align: left; direction: ltr;">${percentage.toFixed(
-                  1
-                )}%</div>
-              </td>
-            </tr>
-          `;
+      <tr>
+        <td>${translateActivityType(key)}</td>
+        <td>${value}</td>
+        <td>${maxValue}</td>
+        <td style="width: 40%">
+          <div class="progress-bar-container">
+            <div class="progress-bar ${progressClass}" style="width: ${percentage}%"></div>
+          </div>
+          <div style="font-size: 12px; margin-top: 5px; text-align: left; direction: ltr;">${percentage.toFixed(
+            1
+          )}%</div>
+        </td>
+      </tr>
+    `;
         }
 
         html += `</table>`;
@@ -1212,52 +1232,52 @@
         else if (period === "six_months") periodText = "شش ماهه";
 
         let html = `
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-card-title">فالو</div>
-              <div class="stat-card-value">${data.follows}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">آنفالو</div>
-              <div class="stat-card-value">${data.unfollows}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">لایک</div>
-              <div class="stat-card-value">${data.likes}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">کامنت</div>
-              <div class="stat-card-value">${data.comments}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">پیام مستقیم</div>
-              <div class="stat-card-value">${data.directs}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">واکنش استوری</div>
-              <div class="stat-card-value">${data.story_reactions}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">فالوئرهای جدید</div>
-              <div class="stat-card-value">${data.followers_gained}</div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-card-title">از دست رفته</div>
-              <div class="stat-card-value">${data.followers_lost}</div>
-            </div>
-          </div>
-          
-          <div class="chart-container">
-            <canvas id="activityChart"></canvas>
-          </div>
-        `;
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-title">فالو</div>
+        <div class="stat-card-value">${data.follows}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">آنفالو</div>
+        <div class="stat-card-value">${data.unfollows}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">لایک</div>
+        <div class="stat-card-value">${data.likes}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">کامنت</div>
+        <div class="stat-card-value">${data.comments}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">پیام مستقیم</div>
+        <div class="stat-card-value">${data.directs}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">واکنش استوری</div>
+        <div class="stat-card-value">${data.story_reactions}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">فالوئرهای جدید</div>
+        <div class="stat-card-value">${data.followers_gained}</div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-card-title">از دست رفته</div>
+        <div class="stat-card-value">${data.followers_lost}</div>
+      </div>
+    </div>
+    
+    <div class="chart-container">
+      <canvas id="activityChart"></canvas>
+    </div>
+  `;
 
         document.getElementById("statsContainer").innerHTML = html;
 
@@ -1365,15 +1385,15 @@
         else if (period === "week") periodText = "این هفته";
 
         let html = `
-          <table class="activities-table">
-            <tr>
-              <th>نوع فعالیت</th>
-              <th>کاربر هدف</th>
-              <th>وضعیت</th>
-              <th>زمان</th>
-              <th>جزئیات</th>
-            </tr>
-        `;
+    <table class="activities-table">
+      <tr>
+        <th>نوع فعالیت</th>
+        <th>کاربر هدف</th>
+        <th>وضعیت</th>
+        <th>زمان</th>
+        <th>جزئیات</th>
+      </tr>
+  `;
 
         data.activities.forEach((activity) => {
           const statusClass =
@@ -1383,29 +1403,29 @@
           const statusText = activity.status === "success" ? "موفق" : "ناموفق";
 
           html += `
-            <tr>
-              <td>${translateActivityType(activity.activity_type)}</td>
-              <td>@${activity.target_user_username}</td>
-              <td><span class="activity-status ${statusClass}">${statusText}</span></td>
-              <td>${formatTime(activity.created_at)}</td>
-              <td>${
-                activity.details
-                  ? activity.details.substring(0, 30) +
-                    (activity.details.length > 30 ? "..." : "")
-                  : "-"
-              }</td>
-            </tr>
-          `;
+      <tr>
+        <td>${translateActivityType(activity.activity_type)}</td>
+        <td>@${activity.target_user_username}</td>
+        <td><span class="activity-status ${statusClass}">${statusText}</span></td>
+        <td>${formatTime(activity.created_at)}</td>
+        <td>${
+          activity.details
+            ? activity.details.substring(0, 30) +
+              (activity.details.length > 30 ? "..." : "")
+            : "-"
+        }</td>
+      </tr>
+    `;
         });
 
         html += `</table>`;
 
         if (data.total > data.activities.length) {
           html += `
-            <div style="text-align: center; margin-top: 15px;">
-              <span style="font-size: 13px; color: var(--gray-color);">نمایش ${data.activities.length} فعالیت از ${data.total} فعالیت در ${periodText}</span>
-            </div>
-          `;
+      <div style="text-align: center; margin-top: 15px;">
+        <span style="font-size: 13px; color: var(--gray-color);">نمایش ${data.activities.length} فعالیت از ${data.total} فعالیت در ${periodText}</span>
+      </div>
+    `;
         }
 
         document.getElementById("activitiesContainer").innerHTML = html;
@@ -1414,15 +1434,15 @@
       // Create error message
       function createErrorMessage(message) {
         return `
-          <div class="error-message">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-            ${message}
-          </div>
-        `;
+    <div class="error-message">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      ${message}
+    </div>
+  `;
       }
 
       // Show notification
@@ -1434,9 +1454,11 @@
 
       // Initialize the page
       function initialize() {
+        // Just update the date/time once when the page loads
         updateDateTime();
-        setInterval(updateDateTime, 60000);
+        // No automatic updates with setInterval anymore
 
+        // Load initial data
         getStatus();
         getStats();
         getActivities();
