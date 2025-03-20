@@ -32,56 +32,86 @@ class BotScheduler:
         self.running = False
         self.lock = threading.Lock()  # Lock to prevent concurrent actions
 
+    def _handle_db_error(self, operation, e):
+        """Handle database errors gracefully"""
+        logger.error(f"Database error during {operation}: {str(e)}")
+        # اگر خطای connection است، تلاش کنید دوباره ترنزکشن را برگردانید
+        try:
+            self.db.rollback()
+            logger.info("Rolled back database transaction")
+        except Exception as rollback_error:
+            logger.error(f"Error during rollback: {str(rollback_error)}")
+
     def initialize(self):
         """Initialize the bot by loading session or logging in"""
-        # ابتدا سعی در بارگذاری نشست موجود
-        if self.client.load_session():
-            logger.info("Successfully loaded existing session")
-            self.actions = ActionManager(self.client.get_client(), self.db)
-            return True
+        try:
+            # ابتدا سعی در بارگذاری نشست موجود
+            if self.client.load_session():
+                logger.info("Successfully loaded existing session")
+                self.actions = ActionManager(self.client.get_client(), self.db)
+                return True
 
-        # اگر نشست موجود نبود، تلاش برای ورود جدید
-        if self.client.login():
-            self.actions = ActionManager(self.client.get_client(), self.db)
-            logger.info("Bot initialized successfully with new login")
-            return True
-        else:
-            logger.error("Failed to initialize bot - login failed")
+            # اگر نشست موجود نبود، تلاش برای ورود جدید
+            if self.client.login():
+                self.actions = ActionManager(self.client.get_client(), self.db)
+                logger.info("Bot initialized successfully with new login")
+                return True
+            else:
+                logger.error("Failed to initialize bot - login failed")
+                return False
+        except Exception as e:
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("initialize", e)
+            else:
+                logger.error(f"Error initializing bot: {str(e)}")
             return False
 
     def start(self):
         """Start the bot scheduler"""
-        if not self.initialize():
+        try:
+            if not self.initialize():
+                return False
+
+            # Schedule the main activity task
+            self.scheduler.add_job(
+                self.perform_activity,
+                # افزایش فاصله بین فعالیت‌ها به 15 دقیقه
+                trigger=IntervalTrigger(minutes=15),
+                id='activity_job',
+                replace_existing=True
+            )
+
+            # Schedule daily follower count update
+            self.scheduler.add_job(
+                self.update_follower_stats,
+                trigger=IntervalTrigger(hours=6),  # Update 4 times per day
+                id='follower_stats_job',
+                replace_existing=True
+            )
+
+            self.scheduler.start()
+            self.running = True
+            logger.info("Bot scheduler started")
+            return True
+        except Exception as e:
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("start", e)
+            else:
+                logger.error(f"Error starting scheduler: {str(e)}")
             return False
-
-        # Schedule the main activity task
-        self.scheduler.add_job(
-            self.perform_activity,
-            # افزایش فاصله بین فعالیت‌ها به 15 دقیقه
-            trigger=IntervalTrigger(minutes=15),
-            id='activity_job',
-            replace_existing=True
-        )
-
-        # Schedule daily follower count update
-        self.scheduler.add_job(
-            self.update_follower_stats,
-            trigger=IntervalTrigger(hours=6),  # Update 4 times per day
-            id='follower_stats_job',
-            replace_existing=True
-        )
-
-        self.scheduler.start()
-        self.running = True
-        logger.info("Bot scheduler started")
-        return True
 
     def stop(self):
         """Stop the bot scheduler"""
-        if self.scheduler.running:
-            self.scheduler.shutdown()
-        self.running = False
-        logger.info("Bot scheduler stopped")
+        try:
+            if self.scheduler.running:
+                self.scheduler.shutdown()
+            self.running = False
+            logger.info("Bot scheduler stopped")
+        except Exception as e:
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("stop", e)
+            else:
+                logger.error(f"Error stopping scheduler: {str(e)}")
 
     def perform_activity(self):
         """Perform a bot activity based on schedule and limits"""
@@ -124,16 +154,19 @@ class BotScheduler:
                 self.perform_story_reaction_activity()
 
         except Exception as e:
-            logger.error(f"Error performing activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("perform_activity", e)
+            else:
+                logger.error(f"Error performing activity: {str(e)}")
 
-            # اگر خطا مربوط به نشست بود، سعی در ورود مجدد
-            if "login_required" in str(e).lower() or "loginrequired" in str(e).lower():
-                logger.info("Session expired. Attempting to login again...")
-                self.client.login()
+                # اگر خطا مربوط به نشست بود، سعی در ورود مجدد
+                if "login_required" in str(e).lower() or "loginrequired" in str(e).lower():
+                    logger.info(
+                        "Session expired. Attempting to login again...")
+                    self.client.login()
         finally:
             self.lock.release()
 
-    # بقیه متدهای کلاس بدون تغییر...
     def perform_follow_activity(self):
         """Perform follow-related activities"""
         try:
@@ -174,7 +207,10 @@ class BotScheduler:
             random_delay()
 
         except Exception as e:
-            logger.error(f"Error in follow activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("follow_activity", e)
+            else:
+                logger.error(f"Error in follow activity: {str(e)}")
 
     def perform_unfollow_activity(self):
         """Perform unfollow-related activities"""
@@ -209,7 +245,10 @@ class BotScheduler:
             random_delay()
 
         except Exception as e:
-            logger.error(f"Error in unfollow activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("unfollow_activity", e)
+            else:
+                logger.error(f"Error in unfollow activity: {str(e)}")
 
     def perform_like_activity(self):
         """Perform like-related activities"""
@@ -255,7 +294,10 @@ class BotScheduler:
             random_delay()
 
         except Exception as e:
-            logger.error(f"Error in like activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("like_activity", e)
+            else:
+                logger.error(f"Error in like activity: {str(e)}")
 
     def perform_comment_activity(self):
         """Perform comment-related activities"""
@@ -291,7 +333,10 @@ class BotScheduler:
             random_delay()
 
         except Exception as e:
-            logger.error(f"Error in comment activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("comment_activity", e)
+            else:
+                logger.error(f"Error in comment activity: {str(e)}")
 
     def perform_direct_activity(self):
         """Perform direct message-related activities"""
@@ -322,7 +367,10 @@ class BotScheduler:
             random_delay()
 
         except Exception as e:
-            logger.error(f"Error in direct message activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("direct_activity", e)
+            else:
+                logger.error(f"Error in direct message activity: {str(e)}")
 
     def perform_story_reaction_activity(self):
         """Perform story reaction-related activities"""
@@ -347,11 +395,17 @@ class BotScheduler:
             random_delay()
 
         except Exception as e:
-            logger.error(f"Error in story reaction activity: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("story_reaction_activity", e)
+            else:
+                logger.error(f"Error in story reaction activity: {str(e)}")
 
     def update_follower_stats(self):
         """Update follower statistics in the database"""
         try:
             update_follower_counts(self.client.get_client(), self.db)
         except Exception as e:
-            logger.error(f"Error updating follower stats: {str(e)}")
+            if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
+                self._handle_db_error("update_follower_stats", e)
+            else:
+                logger.error(f"Error updating follower stats: {str(e)}")

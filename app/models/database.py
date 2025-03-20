@@ -114,6 +114,24 @@ def get_db():
 def create_tables():
     try:
         logger.info("Creating database tables...")
+        # اصلاح موتور برای اتصال به postgres به جای دیتابیس خاص
+        postgres_engine = create_engine(
+            DATABASE_URL.rsplit('/', 1)[0] + '/postgres')
+
+        # تلاش برای ایجاد دیتابیس اگر وجود نداشته باشد
+        with postgres_engine.connect() as conn:
+            conn.execute("commit")
+            # استخراج نام دیتابیس از DATABASE_URL
+            db_name = DATABASE_URL.rsplit('/', 1)[1]
+            # بررسی وجود دیتابیس
+            result = conn.execute(
+                text(f"SELECT 1 FROM pg_database WHERE datname = '{db_name}'"))
+            if not result.scalar():
+                # ایجاد دیتابیس اگر وجود نداشته باشد
+                conn.execute(text(f"CREATE DATABASE {db_name}"))
+                logger.info(f"Database {db_name} created")
+
+        # بعد از اطمینان از وجود دیتابیس، ایجاد جداول
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
     except Exception as e:

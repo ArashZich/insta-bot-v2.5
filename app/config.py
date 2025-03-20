@@ -10,8 +10,7 @@ INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
 INSTAGRAM_PASSWORD = os.getenv("INSTAGRAM_PASSWORD")
 
 # Database settings
-DATABASE_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
-
+DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', 'postgres')}@{os.getenv('DB_HOST', 'postgres')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME', 'postgres')}"
 # Bot settings
 SESSION_PATH = os.getenv("SESSION_PATH", "/app/sessions")
 SESSION_FILE = Path(SESSION_PATH) / f"{INSTAGRAM_USERNAME}.json"

@@ -1,4 +1,3 @@
-import logging
 import uvicorn
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
@@ -9,13 +8,11 @@ from app.bot.scheduler import BotScheduler
 from app.api.routes import router as api_router
 from app.config import API_HOST, API_PORT
 import app.api.routes as routes_module
+from app.logger import setup_logger
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Setup logger
+logger = setup_logger("main")
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -55,9 +52,15 @@ app.include_router(api_router)
 async def startup_event():
     """Initialize the application on startup"""
     try:
-        # Create database tables
-        create_tables()
-        logger.info("Database tables created successfully")
+        # اول اتصال دیتابیس را چک کنید
+        try:
+            # Create database tables
+            create_tables()
+            logger.info("Database tables created successfully")
+        except Exception as db_error:
+            logger.error(f"Database initialization error: {str(db_error)}")
+            # خطای دیتابیس نباید باعث توقف کامل برنامه شود
+            # فقط لاگ کنید و ادامه دهید
 
         # Initialize bot scheduler
         try:
@@ -67,22 +70,14 @@ async def startup_event():
             # Make bot scheduler available to API routes
             routes_module.bot_scheduler = bot_scheduler
 
-            # Start the bot automatically if enabled
-            # Uncomment this part after confirming API works
-            # success = bot_scheduler.start()
-            # if success:
-            #     logger.info("Bot started successfully")
-            # else:
-            #     logger.error("Failed to start bot")
             logger.info("Bot scheduler initialized but not auto-started")
 
         except Exception as e:
             logger.error(f"Error initializing bot scheduler: {str(e)}")
-            raise
+            # اینجا هم خطا را مدیریت کنید بدون توقف کامل برنامه
 
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
-        raise
 
 
 @app.on_event("shutdown")
