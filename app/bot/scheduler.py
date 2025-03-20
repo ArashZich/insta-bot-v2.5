@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from app.models.database import check_db_health
 from app.bot.client import InstagramClient
 from app.bot.actions import ActionManager
 from app.bot.utils import (
@@ -99,6 +100,14 @@ class BotScheduler:
                 self.monitor_lock_status,
                 trigger=IntervalTrigger(minutes=5),  # بررسی هر 5 دقیقه
                 id='lock_monitor_job',
+                replace_existing=True
+            )
+
+            # اضافه کردن بررسی سلامت دیتابیس
+            self.scheduler.add_job(
+                check_db_health,
+                trigger=IntervalTrigger(minutes=10),  # بررسی هر 10 دقیقه
+                id='db_health_check_job',
                 replace_existing=True
             )
 

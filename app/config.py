@@ -10,7 +10,18 @@ INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
 INSTAGRAM_PASSWORD = os.getenv("INSTAGRAM_PASSWORD")
 
 # Database settings
-DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', 'postgres')}@{os.getenv('DB_HOST', 'postgres')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME', 'postgres')}"
+DB_USER = os.getenv('DB_USER', 'postgres')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'postgres')
+DB_HOST = os.getenv('DB_HOST', 'postgres')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'instagrambot')
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Fall back to SQLite if needed
+SQLITE_FALLBACK = os.getenv('SQLITE_FALLBACK', 'False').lower() == 'true'
+if SQLITE_FALLBACK:
+    DATABASE_URL = "sqlite:///instagram_bot.db"
 
 # Bot settings
 SESSION_PATH = os.getenv("SESSION_PATH", "/app/sessions")
@@ -54,3 +65,7 @@ ACTIVITIES = [
     "direct",
     "story_reaction"
 ]
+
+# Database health check interval (seconds)
+DB_HEALTH_CHECK_INTERVAL = int(
+    os.getenv("DB_HEALTH_CHECK_INTERVAL", 300))  # 5 minutes by default

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uvicorn
 from fastapi import FastAPI, Request
@@ -66,41 +67,65 @@ async def read_root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup"""
-    try:
-        # اول اتصال دیتابیس را چک کنید
+    retry_count = 0
+    max_retries = 5
+
+    while retry_count < max_retries:
         try:
-            # Create database tables
-            create_tables()
-            logger.info("Database tables created successfully")
-        except Exception as db_error:
-            logger.error(f"Database initialization error: {str(db_error)}")
-            # خطای دیتابیس نباید باعث توقف کامل برنامه شود
-            # فقط لاگ کنید و ادامه دهید
-
-        # Initialize bot scheduler
-        try:
-            db = next(get_db())
-            bot_scheduler = BotScheduler(db)
-
-            # Make bot scheduler available to API routes
-            routes_module.bot_scheduler = bot_scheduler
-
-            # اضافه کردن شروع خودکار بات - اجرای اتوماتیک
+            # اول اتصال دیتابیس را چک کنید
             try:
-                logger.info("Starting bot automatically...")
-                bot_scheduler.start()
-                logger.info("Bot scheduler started automatically")
-            except Exception as auto_start_error:
+                # Create database tables
+                create_tables()
+                logger.info("Database tables created successfully")
+                break  # اگر موفق شد از حلقه خارج شویم
+            except Exception as db_error:
                 logger.error(
-                    f"Error auto-starting bot: {str(auto_start_error)}")
-                logger.info("Bot scheduler initialized but not auto-started")
+                    f"Database initialization error (attempt {retry_count+1}/{max_retries}): {str(db_error)}")
+                if retry_count < max_retries - 1:
+                    logger.info(f"Waiting 10 seconds before retry...")
+                    await asyncio.sleep(10)
+                    retry_count += 1
+                    continue
+                else:
+                    logger.warning(
+                        "Continuing without database initialization")
+
+            # Initialize bot scheduler
+            try:
+                db = next(get_db())
+                bot_scheduler = BotScheduler(db)
+
+                # Make bot scheduler available to API routes
+                routes_module.bot_scheduler = bot_scheduler
+
+                # اضافه کردن شروع خودکار بات - اجرای اتوماتیک
+                try:
+                    logger.info("Starting bot automatically...")
+                    bot_scheduler.start()
+                    logger.info("Bot scheduler started automatically")
+                except Exception as auto_start_error:
+                    logger.error(
+                        f"Error auto-starting bot: {str(auto_start_error)}")
+                    logger.info(
+                        "Bot scheduler initialized but not auto-started")
+
+            except Exception as e:
+                logger.error(f"Error initializing bot scheduler: {str(e)}")
+                # اینجا هم خطا را مدیریت کنید بدون توقف کامل برنامه
+
+            break  # اگر به اینجا رسیدیم، از حلقه خارج شویم
 
         except Exception as e:
-            logger.error(f"Error initializing bot scheduler: {str(e)}")
-            # اینجا هم خطا را مدیریت کنید بدون توقف کامل برنامه
-
-    except Exception as e:
-        logger.error(f"Error during startup: {str(e)}")
+            logger.error(
+                f"Error during startup (attempt {retry_count+1}/{max_retries}): {str(e)}")
+            if retry_count < max_retries - 1:
+                logger.info(f"Waiting 10 seconds before retry...")
+                await asyncio.sleep(10)
+                retry_count += 1
+            else:
+                logger.critical(
+                    "Failed to initialize application after multiple attempts")
+                break
 
 
 @app.on_event("shutdown")

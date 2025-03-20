@@ -17,12 +17,12 @@ services:
       - PYTHONPATH=/app
     depends_on:
       postgres:
-        condition: service_healthy  # منتظر بماند تا postgres سالم باشد
+        condition: service_healthy
     networks:
       - instagram-bot-network
-    # افزودن تاخیر برای اطمینان بیشتر
+    # ایجاد تاخیر بیشتر برای اطمینان از آماده بودن دیتابیس
     command: >
-      bash -c "sleep 10 && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      bash -c "sleep 20 && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   postgres:
     image: postgres:15
@@ -32,6 +32,7 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -40,10 +41,12 @@ services:
       - instagram-bot-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s  # زمان بیشتر برای راه‌اندازی اولیه
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    # افزودن پارامترهای پایداری بیشتر
+    command: postgres -c shared_buffers=256MB -c max_connections=200
 
 networks:
   instagram-bot-network:
