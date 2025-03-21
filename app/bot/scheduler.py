@@ -2,7 +2,7 @@ import logging
 import random
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -10,6 +10,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.models.database import check_db_health
 from app.bot.client import InstagramClient
 from app.bot.actions import ActionManager
+from app.bot.monitor import bot_monitor
 from app.bot.utils import (
     random_delay,
     should_rest,
@@ -180,30 +181,36 @@ class BotScheduler:
         """Perform a bot activity based on schedule and limits"""
         # بررسی وضعیت استراحت قبل از تلاش برای گرفتن قفل
         if self.is_resting:
-            elapsed_time = (datetime.now() -
-                            self.rest_start_time).total_seconds()
+            # استفاده از datetime.now با timezone.utc
+            current_time = datetime.now(timezone.utc)
+            elapsed_time = (
+                current_time - self.rest_start_time).total_seconds()
             if elapsed_time < self.rest_duration:
                 remaining = self.rest_duration - elapsed_time
                 logger.info(
-                    f"Still in rest period. {int(remaining)} seconds remaining until next activity. Started at {self.rest_start_time.strftime('%H:%M:%S')}.")
+                    f"Still in rest period. {int(remaining)} seconds remaining until next activity. Started at {self.rest_start_time.strftime('%H:%M:%S')}."
+                )
                 # اضافه کنیم که چه زمانی فعالیت بعدی شروع می‌شود
                 next_activity_time = self.rest_start_time + \
                     timedelta(seconds=self.rest_duration)
                 logger.info(
-                    f"Next activity scheduled at approximately: {next_activity_time.strftime('%H:%M:%S')}")
+                    f"Next activity scheduled at approximately: {next_activity_time.strftime('%H:%M:%S')}"
+                )
                 return
             else:
                 # زمان استراحت تمام شده
                 self.is_resting = False
                 logger.info(
-                    f"Rest period completed at {datetime.now().strftime('%H:%M:%S')}. Resuming activities.")
+                    f"Rest period completed at {datetime.now(timezone.utc).strftime('%H:%M:%S')}. Resuming activities."
+                )
 
                 # اطمینان از آزاد بودن قفل
                 if self.lock.locked():
                     try:
                         self.lock.release()
                         logger.info(
-                            "Lock was still held after rest, released it")
+                            "Lock was still held after rest, released it"
+                        )
                     except Exception:
                         pass
 
@@ -224,14 +231,15 @@ class BotScheduler:
 
                 # تنظیم وضعیت استراحت
                 self.is_resting = True
-                self.rest_start_time = datetime.now()
+                self.rest_start_time = datetime.now(timezone.utc)
 
                 # کم کردن زمان استراحت برای تست (بین 1 تا 5 دقیقه)
                 rest_minutes = random.uniform(1, 5)
                 self.rest_duration = rest_minutes * 60
 
                 logger.info(
-                    f"Setting rest period for {rest_minutes:.2f} minutes ({self.rest_duration} seconds)")
+                    f"Setting rest period for {rest_minutes:.2f} minutes ({self.rest_duration} seconds)"
+                )
 
                 # اجرای استراحت
                 take_rest()
@@ -251,9 +259,11 @@ class BotScheduler:
 
             logger.info(f"Performing activity: {activity}")
             # اضافه کردن تخمین زمان پایان فعالیت
-            estimated_completion_time = datetime.now() + timedelta(seconds=60)  # تخمین حدودی
+            estimated_completion_time = datetime.now(
+                timezone.utc) + timedelta(seconds=60)  # تخمین حدودی
             logger.info(
-                f"Estimated completion time: {estimated_completion_time.strftime('%H:%M:%S')}")
+                f"Estimated completion time: {estimated_completion_time.strftime('%H:%M:%S')}"
+            )
 
             # Perform the selected activity
             if activity == "follow":
@@ -271,15 +281,25 @@ class BotScheduler:
 
             # محاسبه و لاگ زمان فعالیت بعدی
             # بر اساس تنظیم interval در تابع start
-            next_activity_time = datetime.now() + timedelta(minutes=15)
+            next_activity_time = datetime.now(
+                timezone.utc) + timedelta(minutes=15)
             logger.info(
-                f"Next scheduled activity will start at approximately: {next_activity_time.strftime('%H:%M:%S')}")
+                f"Next scheduled activity will start at approximately: {next_activity_time.strftime('%H:%M:%S')}"
+            )
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("perform_activity", e)
             else:
                 logger.error(f"Error performing activity: {str(e)}")
+
+                # افزودن ثبت خطا در مانیتور
+                if "login_required" in str(e).lower() or "loginrequired" in str(e).lower() or "Please wait" in str(e):
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(str(e))
+                    else:
+                        logger.warning(
+                            "Bot monitor not available to record error")
 
                 # اگر خطا مربوط به نشست بود، سعی در ورود مجدد
                 if "login_required" in str(e).lower() or "loginrequired" in str(e).lower():
@@ -339,6 +359,10 @@ class BotScheduler:
                 self._handle_db_error("follow_activity", e)
             else:
                 logger.error(f"Error in follow activity: {str(e)}")
+                # ثبت خطا در مانیتور
+                if "login_required" in str(e).lower() or "Please wait" in str(e):
+                    bot_monitor.record_error(
+                        f"Follow activity error: {str(e)}")
 
     def perform_unfollow_activity(self):
         """Perform unfollow-related activities"""
@@ -425,7 +449,11 @@ class BotScheduler:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("like_activity", e)
             else:
-                logger.error(f"Error in like activity: {str(e)}")
+                logger.error(f"Error in follow activity: {str(e)}")
+                # ثبت خطا در مانیتور
+                if "login_required" in str(e).lower() or "Please wait" in str(e):
+                    bot_monitor.record_error(
+                        f"Follow activity error: {str(e)}")
 
     def perform_comment_activity(self):
         """Perform comment-related activities"""
@@ -464,7 +492,11 @@ class BotScheduler:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("comment_activity", e)
             else:
-                logger.error(f"Error in comment activity: {str(e)}")
+                logger.error(f"Error in follow activity: {str(e)}")
+                # ثبت خطا در مانیتور
+                if "login_required" in str(e).lower() or "Please wait" in str(e):
+                    bot_monitor.record_error(
+                        f"Follow activity error: {str(e)}")
 
     def perform_direct_activity(self):
         """Perform direct message-related activities"""

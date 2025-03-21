@@ -854,10 +854,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 
     <script>
+      function convertToIranTime(date) {
+        return new Date(date.getTime() + 3.5 * 60 * 60 * 1000);
+      }
       // Utility functions
       function formatDate(dateString) {
         if (!dateString) return "-";
+
         const date = new Date(dateString);
+        const iranTime = convertToIranTime(date);
         return new Intl.DateTimeFormat("fa-IR", {
           year: "numeric",
           month: "long",
@@ -865,25 +870,31 @@
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
-        }).format(date);
+        }).format(iranTime);
       }
 
       function formatTime(dateString) {
         if (!dateString) return "-";
         const date = new Date(dateString);
+        const iranTime = convertToIranTime(date);
+
         return new Intl.DateTimeFormat("fa-IR", {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
-        }).format(date);
+        }).format(iranTime);
       }
 
       function formatTimeElapsed(dateString) {
         if (!dateString) return "نامشخص";
 
         const date = new Date(dateString);
+        const iranTime = convertToIranTime(date);
+
         const now = new Date();
-        const diffMs = now - date;
+        const nowIran = convertToIranTime(now);
+
+        const diffMs = nowIran - iranTime;
         const diffSec = Math.floor(diffMs / 1000);
 
         if (diffSec < 60) return `${diffSec} ثانیه پیش`;

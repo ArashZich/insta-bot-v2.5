@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import UserNotFound, ClientError
 
@@ -18,7 +18,7 @@ class UnfollowAction:
 
     def get_daily_unfollow_count(self):
         """Get the number of unfollows for today"""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         stats = self.db.query(DailyStats).filter(
             DailyStats.date >= today
         ).first()
@@ -64,18 +64,18 @@ class UnfollowAction:
                 # Update or create user following record
                 if existing_record:
                     existing_record.is_following = False
-                    existing_record.unfollowed_at = datetime.utcnow()
+                    existing_record.unfollowed_at = datetime.now(timezone.utc)
                 else:
                     following = UserFollowing(
                         user_id=user_id,
                         username=username,
                         is_following=False,
-                        unfollowed_at=datetime.utcnow()
+                        unfollowed_at=datetime.now(timezone.utc)
                     )
                     self.db.add(following)
 
                 # Update daily stats
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 stats = self.db.query(DailyStats).filter(
                     DailyStats.date >= today
                 ).first()
@@ -172,7 +172,8 @@ class UnfollowAction:
 
         try:
             # Calculate the threshold date
-            threshold_date = datetime.utcnow() - timedelta(days=days_threshold)
+            threshold_date = datetime.now(
+                timezone.utc) - timedelta(days=days_threshold)
 
             # Get my followers for checking who doesn't follow back
             user_id = self.client.user_id

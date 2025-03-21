@@ -1,5 +1,5 @@
 import random
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import ClientError
 
@@ -19,7 +19,7 @@ class DirectAction:
 
     def get_daily_direct_count(self):
         """Get the number of direct messages for today"""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         stats = self.db.query(DailyStats).filter(
             DailyStats.date >= today
         ).first()
@@ -92,7 +92,7 @@ class DirectAction:
                 self.db.add(activity)
 
                 # Update daily stats
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 stats = self.db.query(DailyStats).filter(
                     DailyStats.date >= today
                 ).first()
@@ -156,7 +156,7 @@ class DirectAction:
             current_follower_ids = set(current_followers.keys())
 
             # Get followers we've already sent messages to from activity history
-            one_day_ago = datetime.utcnow() - datetime.timedelta(days=1)
+            one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
             recent_welcome_messages = self.db.query(BotActivity).filter(
                 BotActivity.activity_type == "direct",
                 BotActivity.created_at >= one_day_ago,
@@ -230,7 +230,8 @@ class DirectAction:
                     continue
 
             # Check if we've messaged these users recently (last 7 days)
-            one_week_ago = datetime.utcnow() - datetime.timedelta(days=7)
+            one_week_ago = datetime.now(
+                timezone.utc) - datetime.timedelta(days=7)
             recent_messages = self.db.query(BotActivity).filter(
                 BotActivity.activity_type == "direct",
                 BotActivity.created_at >= one_week_ago
@@ -280,7 +281,8 @@ class DirectAction:
             follower_ids = set(followers.keys())
 
             # Get users who have interacted with us recently
-            threshold_date = datetime.utcnow() - datetime.timedelta(days=days_inactive)
+            threshold_date = datetime.now(
+                timezone.utc) - datetime.timedelta(days=days_inactive)
             recent_interactions = self.db.query(BotActivity).filter(
                 BotActivity.created_at >= threshold_date,
                 BotActivity.target_user_id.in_(follower_ids)

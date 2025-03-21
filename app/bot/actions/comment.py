@@ -1,6 +1,6 @@
 
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import ClientError
 
@@ -20,7 +20,7 @@ class CommentAction:
 
     def get_daily_comment_count(self):
         """Get the number of comments for today"""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         stats = self.db.query(DailyStats).filter(
             DailyStats.date >= today
         ).first()
@@ -102,7 +102,7 @@ class CommentAction:
                 self.db.add(activity)
 
                 # Update daily stats
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 stats = self.db.query(DailyStats).filter(
                     DailyStats.date >= today
                 ).first()

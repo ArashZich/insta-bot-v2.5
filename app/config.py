@@ -29,16 +29,16 @@ SESSION_FILE = Path(SESSION_PATH) / f"{INSTAGRAM_USERNAME}.json"
 
 # Action limits - تنظیم مقادیر منطقی‌تر
 MIN_DELAY_BETWEEN_ACTIONS = int(
-    os.getenv("MIN_DELAY_BETWEEN_ACTIONS", 30))  # حداقل 30 ثانیه
+    os.getenv("MIN_DELAY_BETWEEN_ACTIONS", 60))  # حداقل 60 ثانیه
 MAX_DELAY_BETWEEN_ACTIONS = int(
-    os.getenv("MAX_DELAY_BETWEEN_ACTIONS", 90))  # حداکثر 90 ثانیه
-DAILY_FOLLOW_LIMIT = int(os.getenv("DAILY_FOLLOW_LIMIT", 20))  # کاهش به 20
-DAILY_UNFOLLOW_LIMIT = int(os.getenv("DAILY_UNFOLLOW_LIMIT", 20))  # کاهش به 20
-DAILY_LIKE_LIMIT = int(os.getenv("DAILY_LIKE_LIMIT", 50))  # کاهش به 50
-DAILY_COMMENT_LIMIT = int(os.getenv("DAILY_COMMENT_LIMIT", 10))  # کاهش به 10
-DAILY_DIRECT_LIMIT = int(os.getenv("DAILY_DIRECT_LIMIT", 5))  # کاهش به 5
+    os.getenv("MAX_DELAY_BETWEEN_ACTIONS", 180))  # حداکثر 180 ثانیه
+DAILY_FOLLOW_LIMIT = int(os.getenv("DAILY_FOLLOW_LIMIT", 10))  # کاهش به 10
+DAILY_UNFOLLOW_LIMIT = int(os.getenv("DAILY_UNFOLLOW_LIMIT", 10))  # کاهش به 10
+DAILY_LIKE_LIMIT = int(os.getenv("DAILY_LIKE_LIMIT", 25))  # کاهش به 25
+DAILY_COMMENT_LIMIT = int(os.getenv("DAILY_COMMENT_LIMIT", 5))  # کاهش به 5
+DAILY_DIRECT_LIMIT = int(os.getenv("DAILY_DIRECT_LIMIT", 3))  # کاهش به 3
 DAILY_STORY_REACTION_LIMIT = int(
-    os.getenv("DAILY_STORY_REACTION_LIMIT", 10))  # کاهش به 10
+    os.getenv("DAILY_STORY_REACTION_LIMIT", 5))  # کاهش به 5
 
 # Bot behavior - تنظیم زمان استراحت
 RANDOM_ACTIVITY_MODE = os.getenv(

@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import time
 import requests
@@ -229,7 +229,7 @@ def get_stats(request: StatsRequest, db: Session = Depends(get_db)):
 
 def get_date_range_from_period(period: FilterPeriod):
     """Convert period string to date range"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if period == FilterPeriod.today:
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = now

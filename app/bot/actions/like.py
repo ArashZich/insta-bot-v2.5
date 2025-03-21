@@ -1,6 +1,6 @@
 
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import ClientError
 
@@ -19,7 +19,7 @@ class LikeAction:
 
     def get_daily_like_count(self):
         """Get the number of likes for today"""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         stats = self.db.query(DailyStats).filter(
             DailyStats.date >= today
         ).first()
@@ -57,7 +57,7 @@ class LikeAction:
                 self.db.add(activity)
 
                 # Update daily stats
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 stats = self.db.query(DailyStats).filter(
                     DailyStats.date >= today
                 ).first()

@@ -1,7 +1,7 @@
 import random
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.models.database import DailyStats, BotActivity
 from app.config import (
@@ -87,7 +87,7 @@ def choose_random_activity():
 
 def get_daily_limits_status(db: Session):
     """Get current daily limits status"""
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     stats = db.query(DailyStats).filter(
         DailyStats.date >= today
     ).first()
@@ -114,7 +114,7 @@ def get_daily_limits_status(db: Session):
 
 def get_activity_stats(db: Session, period):
     """Calculate activity statistics for a specified period"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Determine start date based on period
     if period == "daily":
@@ -203,13 +203,13 @@ def update_follower_counts(client, db: Session):
         current_followers_count = len(client.user_followers(user_id))
 
         # Get yesterday's stats if available
-        yesterday = datetime.utcnow().date() - timedelta(days=1)
+        yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
         yesterday_stats = db.query(DailyStats).filter(
             DailyStats.date == yesterday
         ).first()
 
         # Get or create today's stats
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         today_stats = db.query(DailyStats).filter(
             DailyStats.date == today
         ).first()

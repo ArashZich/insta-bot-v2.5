@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import logging
 import os
@@ -185,9 +185,9 @@ class BotSession(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     session_data = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow,
-                        onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc),
+                        onupdate=datetime.now(timezone.utc))
     is_active = Column(Boolean, default=True)
 
 
@@ -202,7 +202,7 @@ class BotActivity(Base):
     target_media_id = Column(String, nullable=True)
     status = Column(String)  # success, failed
     details = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
 
 class UserFollowing(Base):
@@ -211,7 +211,7 @@ class UserFollowing(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, index=True)
     username = Column(String)
-    followed_at = Column(DateTime, default=datetime.utcnow)
+    followed_at = Column(DateTime, default=datetime.now(timezone.utc))
     unfollowed_at = Column(DateTime, nullable=True)
     is_following = Column(Boolean, default=True)
     followed_back = Column(Boolean, default=False)

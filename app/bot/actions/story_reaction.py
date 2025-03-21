@@ -1,6 +1,6 @@
 
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import ClientError
 
@@ -20,7 +20,7 @@ class StoryReactionAction:
 
     def get_daily_story_reaction_count(self):
         """Get the number of story reactions for today"""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         stats = self.db.query(DailyStats).filter(
             DailyStats.date >= today
         ).first()
@@ -91,7 +91,7 @@ class StoryReactionAction:
                 self.db.add(activity)
 
                 # Update daily stats
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 stats = self.db.query(DailyStats).filter(
                     DailyStats.date >= today
                 ).first()

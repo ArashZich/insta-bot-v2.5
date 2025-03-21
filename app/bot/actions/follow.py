@@ -1,5 +1,5 @@
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import UserNotFound, ClientError
 
@@ -18,7 +18,7 @@ class FollowAction:
 
     def get_daily_follow_count(self):
         """Get the number of follows for today"""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         stats = self.db.query(DailyStats).filter(
             DailyStats.date >= today
         ).first()
@@ -64,7 +64,7 @@ class FollowAction:
                 # Update or create user following record
                 if existing_record:
                     existing_record.is_following = True
-                    existing_record.followed_at = datetime.utcnow()
+                    existing_record.followed_at = datetime.now(timezone.utc)
                     existing_record.unfollowed_at = None
                 else:
                     following = UserFollowing(
@@ -75,7 +75,7 @@ class FollowAction:
                     self.db.add(following)
 
                 # Update daily stats
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 stats = self.db.query(DailyStats).filter(
                     DailyStats.date >= today
                 ).first()
