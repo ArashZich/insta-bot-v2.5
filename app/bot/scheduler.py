@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.events import EVENT_JOB_ERROR
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
 from app.models.database import check_db_health
 from app.bot.client import InstagramClient
@@ -49,6 +49,20 @@ class BotScheduler:
         # تاخیر بین درخواست‌ها
         self.min_delay = MIN_DELAY_BETWEEN_ACTIONS
         self.max_delay = MAX_DELAY_BETWEEN_ACTIONS
+        # شمارنده خطاها (برای استراحت طولانی‌تر)
+        self.error_count = 0
+        self.error_reset_time = datetime.now(timezone.utc)
+        # آخرین فعالیت موفق
+        self.last_successful_activity = None
+        # استراتژی فعالیت‌ها
+        self.activity_weights = {
+            "follow": 1,
+            "unfollow": 1,
+            "like": 3,  # احتمال بیشتر برای لایک چون کم خطرتر است
+            "comment": 1,
+            "direct": 1,
+            "story_reaction": 2  # احتمال بیشتر برای واکنش به استوری
+        }
 
     def _handle_db_error(self, operation, e):
         """Handle database errors gracefully"""
@@ -89,9 +103,29 @@ class BotScheduler:
         logger.error(f"Job execution error: {event.exception}")
         logger.error(f"Traceback: {event.traceback}")
 
+        # افزایش شمارنده خطاها
+        self.error_count += 1
+
+        # ریست شمارنده خطاها هر 6 ساعت
+        if (datetime.now(timezone.utc) - self.error_reset_time).total_seconds() > 21600:  # 6 ساعت
+            self.error_count = 1  # شروع از 1 بعد از ریست (خطای فعلی)
+            self.error_reset_time = datetime.now(timezone.utc)
+            logger.info("Error count reset after 6 hours")
+
         # ثبت خطا در مانیتور
         if 'bot_monitor' in globals():
             bot_monitor.record_error(f"Job error: {str(event.exception)}")
+
+    def job_executed_listener(self, event):
+        """Handler for successful job execution"""
+        # تنظیم زمان آخرین فعالیت موفق
+        self.last_successful_activity = datetime.now(timezone.utc)
+
+        # کاهش شمارنده خطاها در صورت موفقیت
+        if self.error_count > 0:
+            self.error_count -= 0.5  # کاهش تدریجی شمارنده خطاها
+            if self.error_count < 0:
+                self.error_count = 0
 
     def start(self):
         """Start the bot scheduler"""
@@ -116,15 +150,23 @@ class BotScheduler:
             self.scheduler.add_listener(
                 self.job_error_listener, EVENT_JOB_ERROR)
 
+            # اضافه کردن listener برای اجرای موفق job
+            self.scheduler.add_listener(
+                self.job_executed_listener, EVENT_JOB_EXECUTED)
+
+            # تنظیم فاصله زمانی تصادفی‌تر بین فعالیت‌ها (15-35 دقیقه)
+            interval_minutes = random.randint(15, 35)
+
             # Schedule the main activity task
             self.scheduler.add_job(
                 self.perform_activity,
-                # فاصله بین فعالیت‌ها 15-25 دقیقه (تصادفی برای طبیعی‌تر بودن)
-                trigger=IntervalTrigger(minutes=random.randint(15, 25)),
+                trigger=IntervalTrigger(minutes=interval_minutes),
                 id='activity_job',
                 replace_existing=True,
                 max_instances=1  # اطمینان از حداکثر یک نمونه در حال اجرا
             )
+            logger.info(
+                f"Main activity job scheduled to run every {interval_minutes} minutes")
 
             # Schedule daily follower count update
             self.scheduler.add_job(
@@ -150,25 +192,39 @@ class BotScheduler:
                 replace_existing=True
             )
 
+            # اضافه کردن بررسی وضعیت لاگین و سلامت سشن
+            self.scheduler.add_job(
+                self.check_login_health,
+                trigger=IntervalTrigger(hours=4),  # بررسی هر 4 ساعت
+                id='login_health_check_job',
+                replace_existing=True
+            )
+
             # ریست کردن وضعیت استراحت
             self.is_resting = False
             self.rest_start_time = None
             self.rest_duration = 0
             self.lock_acquired_time = None
             self.restart_attempts = 0
+            self.error_count = 0
+            self.error_reset_time = datetime.now(timezone.utc)
+            self.last_successful_activity = datetime.now(timezone.utc)
 
             self.scheduler.start()
             self.running = True
             logger.info("Bot scheduler started")
 
             # اجرای یک فعالیت اولیه بلافاصله پس از شروع با تاخیر کم
+            first_activity_delay = random.randint(
+                30, 180)  # بین 30 ثانیه تا 3 دقیقه
             self.scheduler.add_job(
                 self.perform_activity,
                 trigger='date',
-                run_date=datetime.now() + timedelta(seconds=30),
+                run_date=datetime.now() + timedelta(seconds=first_activity_delay),
                 id='initial_job'
             )
-            logger.info("Scheduled initial activity for 30 seconds from now")
+            logger.info(
+                f"Scheduled initial activity for {first_activity_delay} seconds from now")
 
             return True
         except Exception as e:
@@ -205,7 +261,7 @@ class BotScheduler:
 
             # اگر تعداد تلاش‌ها بیش از حد است، یک تاخیر اضافه کنیم
             if self.restart_attempts > 3:
-                delay = min(30 * self.restart_attempts, 300)  # حداکثر 5 دقیقه
+                delay = min(60 * self.restart_attempts, 600)  # حداکثر 10 دقیقه
                 logger.warning(
                     f"Multiple restart attempts detected ({self.restart_attempts}). Waiting {delay} seconds before trying again...")
                 time.sleep(delay)
@@ -215,7 +271,7 @@ class BotScheduler:
                 logger.info("Stopping current scheduler...")
                 self.stop()
                 # کمی صبر می‌کنیم تا به طور کامل بسته شود
-                time.sleep(5)
+                time.sleep(10)
 
             # راه‌اندازی مجدد
             logger.info("Starting new scheduler...")
@@ -233,9 +289,67 @@ class BotScheduler:
             logger.error(f"Error during bot restart: {str(e)}")
             return False
 
-    def monitor_lock_status(self):
-        """Monitor lock status and release if necessary"""
+    def check_login_health(self):
+        """Check if the login session is still valid and refresh if needed"""
         try:
+            logger.info("Checking login session health...")
+
+            # بررسی وضعیت ورود
+            if not self.client.logged_in:
+                logger.warning(
+                    "Login session appears to be inactive. Attempting to login...")
+                login_result = self.client.login()
+                if login_result:
+                    logger.info("Successfully refreshed login session")
+                    return True
+                else:
+                    logger.error("Failed to refresh login session")
+                    return False
+
+            # حتی اگر ظاهراً لاگین هستیم، یک عملیات ساده انجام دهیم تا مطمئن شویم
+            try:
+                # یک عملیات ساده که به احتمال زیاد با محدودیت‌های اینستاگرام برخورد نمی‌کند
+                _ = self.client.get_client().get_timeline_feed(amount=1)
+                logger.info("Login session is healthy")
+                return True
+            except Exception as check_error:
+                if "login_required" in str(check_error).lower() or "loginrequired" in str(check_error).lower():
+                    logger.warning(
+                        "Login session expired. Attempting to login again...")
+                    login_result = self.client.login(force=True)
+                    if login_result:
+                        logger.info(
+                            "Successfully refreshed login session after check")
+                        return True
+                    else:
+                        logger.error(
+                            "Failed to refresh login session after check")
+                        return False
+                else:
+                    logger.error(
+                        f"Error checking login health: {str(check_error)}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error in login health check: {str(e)}")
+            return False
+
+    def monitor_lock_status(self):
+        """Monitor lock status and release if necessary, also checks for inactive bot"""
+        try:
+            # بررسی عدم فعالیت طولانی مدت بات
+            if self.last_successful_activity:
+                current_time = datetime.now(timezone.utc)
+                inactive_time = (
+                    current_time - self.last_successful_activity).total_seconds()
+
+                # اگر بیش از 6 ساعت بدون فعالیت موفق گذشته، راه‌اندازی مجدد
+                if inactive_time > 21600:  # 6 ساعت
+                    logger.warning(
+                        f"Bot has been inactive for {inactive_time/3600:.1f} hours. Attempting to restart...")
+                    self.restart()
+                    return
+
             # بررسی اگر استراحت در حال انجام است و زمان آن گذشته
             if self.is_resting and self.rest_start_time and self.rest_duration > 0:
                 # اطمینان از وجود timezone یکسان برای هر دو زمان
@@ -287,7 +401,22 @@ class BotScheduler:
             logger.error(f"Error in lock monitor: {str(e)}")
 
     def perform_activity(self):
-        """Perform a bot activity based on schedule and limits"""
+        """Perform a bot activity based on schedule and limits with adaptive error handling"""
+        # استراتژی استراحت بر اساس تعداد خطاها
+        # اگر خطاهای متوالی زیاد باشد، احتمال استراحت را افزایش می‌دهیم
+        if self.error_count >= 5 and random.random() < 0.7:  # 70% chance of rest
+            logger.warning(
+                f"Taking a forced rest due to high error count ({self.error_count})")
+            self.is_resting = True
+            self.rest_start_time = datetime.now(timezone.utc)
+
+            # زمان استراحت طولانی‌تر بسته به تعداد خطاها (بین 1 تا 3 ساعت)
+            hours = min(1 + (self.error_count / 5), 3)
+            self.rest_duration = hours * 3600
+            logger.info(
+                f"Setting extended rest period for {hours:.1f} hours due to errors")
+            return
+
         # بررسی وضعیت استراحت قبل از تلاش برای گرفتن قفل
         if self.is_resting:
             # استفاده از datetime.now با timezone
@@ -367,16 +496,35 @@ class BotScheduler:
                         f"Taking a 30 minute break after login failure")
                     return
 
-            # Check if we should take a rest - افزایش احتمال استراحت
-            if random.random() < 0.2:  # 20% chance to rest
+            # بررسی نیاز به استراحت - احتمال متغیر بر اساس شرایط
+            rest_probability = 0.2  # احتمال پایه 20%
+
+            # افزایش احتمال استراحت بر اساس تعداد خطاها
+            if self.error_count > 0:
+                # افزایش تا حداکثر 50%
+                rest_probability += min(self.error_count * 0.1, 0.5)
+
+            # افزایش احتمال استراحت در ساعات شلوغ (ساعت‌های 10 صبح تا 10 شب به وقت ایران)
+            current_hour = (datetime.now(timezone.utc).hour +
+                            3.5) % 24  # تبدیل به وقت ایران
+            if 10 <= current_hour <= 22:
+                rest_probability += 0.1
+
+            if random.random() < rest_probability:
                 logger.info("Decision made to take a rest")
 
                 # تنظیم وضعیت استراحت
                 self.is_resting = True
                 self.rest_start_time = datetime.now(timezone.utc)
 
-                # استراحت طولانی‌تر برای جلوگیری از محدودیت‌های اینستاگرام (بین 15 تا 40 دقیقه)
-                rest_minutes = random.uniform(15, 40)
+                # استراحت طولانی‌تر برای جلوگیری از محدودیت‌های اینستاگرام
+                # بین 20 تا 90 دقیقه، با احتمال کم برای استراحت‌های طولانی‌تر
+                if random.random() < 0.2:  # 20% احتمال استراحت طولانی
+                    rest_minutes = random.uniform(60, 180)  # بین 1 تا 3 ساعت
+                    logger.info("Taking a longer rest period")
+                else:
+                    rest_minutes = random.uniform(20, 90)  # بین 20 تا 90 دقیقه
+
                 self.rest_duration = rest_minutes * 60
 
                 logger.info(
@@ -393,10 +541,23 @@ class BotScheduler:
                     logger.info("Lock released before rest")
                 return
 
-            # انتخاب فعالیت با وزن بیشتر برای فعالیت‌های امن‌تر مانند لایک
-            activities = ["follow", "unfollow", "like", "like",
-                          "like", "comment", "direct", "story_reaction"]
-            activity = random.choice(activities)
+            # انتخاب فعالیت با وزن‌های هوشمند
+            # استفاده از وزن‌های تعریف شده در کلاس
+            activities = []
+            weights = []
+
+            for act, weight in self.activity_weights.items():
+                # کاهش وزن فعالیت‌های پرخطر در صورت وجود خطاهای اخیر
+                adjusted_weight = weight
+                if self.error_count > 2:
+                    if act in ["follow", "unfollow", "comment", "direct"]:
+                        adjusted_weight = weight * 0.5  # کاهش 50% برای فعالیت‌های پرخطر
+
+                activities.append(act)
+                weights.append(adjusted_weight)
+
+            # انتخاب فعالیت با توجه به وزن‌ها
+            activity = random.choices(activities, weights=weights, k=1)[0]
 
             logger.info(f"Performing activity: {activity}")
             # اضافه کردن تخمین زمان پایان فعالیت
@@ -420,8 +581,23 @@ class BotScheduler:
             elif activity == "story_reaction":
                 self.perform_story_reaction_activity()
 
-            # محاسبه و لاگ زمان فعالیت بعدی - افزایش فاصله بین فعالیت‌ها
-            next_minutes = random.randint(20, 35)
+            # فعالیت موفق - ثبت زمان
+            self.last_successful_activity = datetime.now(timezone.utc)
+
+            # کاهش شمارنده خطا در صورت موفقیت
+            if self.error_count > 0:
+                self.error_count -= 0.5
+                if self.error_count < 0:
+                    self.error_count = 0
+
+            # محاسبه و لاگ زمان فعالیت بعدی - فاصله متغیر بین فعالیت‌ها بر اساس شرایط
+            if self.error_count > 3:
+                # فاصله بیشتر در صورت وجود خطاهای متوالی
+                next_minutes = random.randint(30, 60)
+            else:
+                # فاصله عادی
+                next_minutes = random.randint(20, 40)
+
             next_activity_time = datetime.now(
                 timezone.utc) + timedelta(minutes=next_minutes)
             logger.info(
@@ -444,10 +620,20 @@ class BotScheduler:
                     # تنظیم یک استراحت طولانی‌تر در صورت برخورد با محدودیت
                     self.is_resting = True
                     self.rest_start_time = datetime.now(timezone.utc)
-                    self.rest_duration = random.randint(
-                        2700, 3600)  # 45-60 دقیقه
+
+                    # مدت استراحت بر اساس تعداد خطاها
+                    if self.error_count < 3:
+                        self.rest_duration = random.randint(
+                            2700, 3600)  # 45-60 دقیقه
+                    elif self.error_count < 6:
+                        self.rest_duration = random.randint(
+                            3600, 7200)  # 1-2 ساعت
+                    else:
+                        self.rest_duration = random.randint(
+                            7200, 14400)  # 2-4 ساعت
+
                     logger.info(
-                        f"Setting extended rest period for {self.rest_duration/60:.1f} minutes due to rate limits")
+                        f"Setting extended rest period for {self.rest_duration/60:.1f} minutes due to rate limits (error count: {self.error_count})")
 
                     if 'bot_monitor' in globals():
                         bot_monitor.record_error(str(e))
