@@ -166,7 +166,7 @@ class InstagramClient:
                 try:
                     # اضافه کردن تاخیر قبل از تست
                     time.sleep(5)
-                    self.client.get_timeline_feed(amount=1)
+                    self.client.get_timeline_feed()
                     self.logged_in = True
                     logger.info("Successfully loaded valid session from file")
                     return True
@@ -199,7 +199,7 @@ class InstagramClient:
                 try:
                     # اضافه کردن تاخیر قبل از تست
                     time.sleep(5)
-                    self.client.get_timeline_feed(amount=1)
+                    self.client.get_timeline_feed()
                     self.logged_in = True
                     logger.info(
                         "Successfully loaded valid session from database")
