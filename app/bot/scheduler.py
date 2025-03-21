@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.events import EVENT_JOB_ERROR
 
 from app.models.database import check_db_health
 from app.bot.client import InstagramClient
@@ -18,7 +19,11 @@ from app.bot.utils import (
     choose_random_activity,
     update_follower_counts
 )
-from app.config import RANDOM_ACTIVITY_MODE
+from app.config import (
+    RANDOM_ACTIVITY_MODE,
+    MIN_DELAY_BETWEEN_ACTIONS,
+    MAX_DELAY_BETWEEN_ACTIONS
+)
 from app.logger import setup_logger
 
 # Setup logger
@@ -30,13 +35,20 @@ class BotScheduler:
         self.db = db
         self.client = InstagramClient(db)
         self.actions = None
-        self.scheduler = BackgroundScheduler()
+        self.scheduler = None  # Will be initialized in start()
         self.running = False
         self.lock = threading.Lock()  # Lock to prevent concurrent actions
         # اضافه کردن متغیر برای نگهداری وضعیت استراحت
         self.is_resting = False
         self.rest_start_time = None
         self.rest_duration = 0
+        # اضافه کردن متغیر برای زمان گرفتن قفل
+        self.lock_acquired_time = None
+        # اضافه کردن شمارنده تلاش‌ها
+        self.restart_attempts = 0
+        # تاخیر بین درخواست‌ها
+        self.min_delay = MIN_DELAY_BETWEEN_ACTIONS
+        self.max_delay = MAX_DELAY_BETWEEN_ACTIONS
 
     def _handle_db_error(self, operation, e):
         """Handle database errors gracefully"""
@@ -72,17 +84,43 @@ class BotScheduler:
                 logger.error(f"Error initializing bot: {str(e)}")
             return False
 
+    def job_error_listener(self, event):
+        """Handler for job execution errors"""
+        logger.error(f"Job execution error: {event.exception}")
+        logger.error(f"Traceback: {event.traceback}")
+
+        # ثبت خطا در مانیتور
+        if 'bot_monitor' in globals():
+            bot_monitor.record_error(f"Job error: {str(event.exception)}")
+
     def start(self):
         """Start the bot scheduler"""
         try:
             if not self.initialize():
                 return False
 
+            # ایجاد یک scheduler جدید
+            if self.scheduler and self.scheduler.running:
+                logger.warning(
+                    "Scheduler is already running. Stopping it first...")
+                try:
+                    self.scheduler.shutdown(wait=False)
+                except Exception as shutdown_error:
+                    logger.error(
+                        f"Error shutting down existing scheduler: {str(shutdown_error)}")
+
+            # ایجاد scheduler جدید
+            self.scheduler = BackgroundScheduler()
+
+            # اضافه کردن listener برای خطاهای اجرای job
+            self.scheduler.add_listener(
+                self.job_error_listener, EVENT_JOB_ERROR)
+
             # Schedule the main activity task
             self.scheduler.add_job(
                 self.perform_activity,
-                # فاصله بین فعالیت‌ها 15 دقیقه
-                trigger=IntervalTrigger(minutes=15),
+                # فاصله بین فعالیت‌ها 15-25 دقیقه (تصادفی برای طبیعی‌تر بودن)
+                trigger=IntervalTrigger(minutes=random.randint(15, 25)),
                 id='activity_job',
                 replace_existing=True,
                 max_instances=1  # اطمینان از حداکثر یک نمونه در حال اجرا
@@ -116,15 +154,21 @@ class BotScheduler:
             self.is_resting = False
             self.rest_start_time = None
             self.rest_duration = 0
+            self.lock_acquired_time = None
+            self.restart_attempts = 0
 
             self.scheduler.start()
             self.running = True
             logger.info("Bot scheduler started")
 
-            # اجرای یک فعالیت اولیه بلافاصله پس از شروع
-            self.scheduler.add_job(self.perform_activity, trigger='date', run_date=datetime.now(
-            ) + timedelta(seconds=10), id='initial_job')
-            logger.info("Scheduled initial activity for 10 seconds from now")
+            # اجرای یک فعالیت اولیه بلافاصله پس از شروع با تاخیر کم
+            self.scheduler.add_job(
+                self.perform_activity,
+                trigger='date',
+                run_date=datetime.now() + timedelta(seconds=30),
+                id='initial_job'
+            )
+            logger.info("Scheduled initial activity for 30 seconds from now")
 
             return True
         except Exception as e:
@@ -137,17 +181,57 @@ class BotScheduler:
     def stop(self):
         """Stop the bot scheduler"""
         try:
-            if self.scheduler.running:
-                self.scheduler.shutdown()
+            if self.scheduler and self.scheduler.running:
+                self.scheduler.shutdown(wait=False)
             self.running = False
             # ریست وضعیت استراحت
             self.is_resting = False
+            self.rest_start_time = None
+            self.rest_duration = 0
             logger.info("Bot scheduler stopped")
+            return True
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("stop", e)
             else:
                 logger.error(f"Error stopping scheduler: {str(e)}")
+            return False
+
+    def restart(self):
+        """Restart the bot scheduler properly"""
+        try:
+            logger.info("Attempting to restart the bot scheduler...")
+            self.restart_attempts += 1
+
+            # اگر تعداد تلاش‌ها بیش از حد است، یک تاخیر اضافه کنیم
+            if self.restart_attempts > 3:
+                delay = min(30 * self.restart_attempts, 300)  # حداکثر 5 دقیقه
+                logger.warning(
+                    f"Multiple restart attempts detected ({self.restart_attempts}). Waiting {delay} seconds before trying again...")
+                time.sleep(delay)
+
+            # اول به طور کامل متوقف می‌کنیم
+            if self.running:
+                logger.info("Stopping current scheduler...")
+                self.stop()
+                # کمی صبر می‌کنیم تا به طور کامل بسته شود
+                time.sleep(5)
+
+            # راه‌اندازی مجدد
+            logger.info("Starting new scheduler...")
+            result = self.start()
+
+            if result:
+                self.restart_attempts = 0  # ریست کردن شمارنده در صورت موفقیت
+                logger.info("Bot successfully restarted")
+            else:
+                logger.error("Failed to restart bot")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error during bot restart: {str(e)}")
+            return False
 
     def monitor_lock_status(self):
         """Monitor lock status and release if necessary"""
@@ -160,19 +244,30 @@ class BotScheduler:
                     logger.warning(
                         f"Rest period of {self.rest_duration} seconds has expired but lock wasn't released. Forcibly releasing lock.")
                     self.is_resting = False
+                    self.rest_start_time = None
+                    self.rest_duration = 0
                     if self.lock.locked():
+                        try:
+                            self.lock.release()
+                            logger.info(
+                                "Lock forcibly released after rest period expired")
+                        except Exception as e:
+                            logger.error(
+                                f"Error releasing lock after rest: {str(e)}")
+
+            # بررسی اگر قفل گرفته شده و بیش از حد معقول گذشته (احتمالاً خطایی رخ داده)
+            elif self.lock.locked() and self.lock_acquired_time:
+                elapsed_time = (datetime.now() -
+                                self.lock_acquired_time).total_seconds()
+                if elapsed_time > 1800:  # 30 دقیقه
+                    logger.warning(
+                        f"Lock has been held for {elapsed_time/60:.1f} minutes without release. Forcibly releasing.")
+                    try:
                         self.lock.release()
                         logger.info("Lock forcibly released")
-
-            # بررسی اگر قفل گرفته شده و بیش از 30 دقیقه گذشته (احتمالاً خطایی رخ داده)
-            elif self.lock.locked():
-                logger.warning(
-                    "Lock is held without active rest period. Forcibly releasing lock.")
-                try:
-                    self.lock.release()
-                    logger.info("Lock forcibly released")
-                except Exception as e:
-                    logger.error(f"Error releasing lock: {str(e)}")
+                        self.lock_acquired_time = None
+                    except Exception as e:
+                        logger.error(f"Error releasing lock: {str(e)}")
 
         except Exception as e:
             logger.error(f"Error in lock monitor: {str(e)}")
@@ -181,7 +276,7 @@ class BotScheduler:
         """Perform a bot activity based on schedule and limits"""
         # بررسی وضعیت استراحت قبل از تلاش برای گرفتن قفل
         if self.is_resting:
-            # استفاده از datetime.now با timezone.utc
+            # استفاده از datetime.now
             current_time = datetime.now(timezone.utc)
             elapsed_time = (
                 current_time - self.rest_start_time).total_seconds()
@@ -200,6 +295,8 @@ class BotScheduler:
             else:
                 # زمان استراحت تمام شده
                 self.is_resting = False
+                self.rest_start_time = None
+                self.rest_duration = 0
                 logger.info(
                     f"Rest period completed at {datetime.now(timezone.utc).strftime('%H:%M:%S')}. Resuming activities."
                 )
@@ -211,19 +308,27 @@ class BotScheduler:
                         logger.info(
                             "Lock was still held after rest, released it"
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error(
+                            f"Error releasing lock after rest: {str(e)}")
 
-        # Use lock to prevent concurrent actions
-        if not self.lock.acquire(blocking=False):
-            logger.info("Another activity is already in progress, skipping")
-            return
-
+        # Use lock to prevent concurrent actions with timeout
         try:
+            lock_acquired = self.lock.acquire(blocking=True, timeout=10)
+            if not lock_acquired:
+                logger.warning(
+                    "Could not acquire lock after 10 seconds, another activity might be in progress")
+                return
+
+            # ذخیره زمان گرفتن قفل
+            self.lock_acquired_time = datetime.now(timezone.utc)
             logger.info("Lock acquired, preparing to perform activity")
 
-            # اضافه کردن تاخیر اضافی قبل از شروع
-            time.sleep(random.randint(2, 5))
+            # اضافه کردن تاخیر تصادفی قبل از شروع
+            wait_time = random.randint(2, 8)
+            logger.info(
+                f"Waiting {wait_time} seconds before starting activity...")
+            time.sleep(wait_time)
 
             # Check if we should take a rest
             if should_rest():
@@ -234,7 +339,7 @@ class BotScheduler:
                 self.rest_start_time = datetime.now(timezone.utc)
 
                 # کم کردن زمان استراحت برای تست (بین 1 تا 5 دقیقه)
-                rest_minutes = random.uniform(1, 5)
+                rest_minutes = random.uniform(3, 8)
                 self.rest_duration = rest_minutes * 60
 
                 logger.info(
@@ -244,9 +349,11 @@ class BotScheduler:
                 # اجرای استراحت
                 take_rest()
 
-                # پس از استراحت، وضعیت را ریست می‌کنیم
-                self.is_resting = False
-                logger.info("Rest completed, reset rest status")
+                # آزاد کردن قفل قبل از بازگشت
+                if self.lock.locked():
+                    self.lock.release()
+                    self.lock_acquired_time = None
+                    logger.info("Lock released before rest")
                 return
 
             # Choose a random activity if in random mode, otherwise cycle through activities
@@ -260,7 +367,7 @@ class BotScheduler:
             logger.info(f"Performing activity: {activity}")
             # اضافه کردن تخمین زمان پایان فعالیت
             estimated_completion_time = datetime.now(
-                timezone.utc) + timedelta(seconds=60)  # تخمین حدودی
+                timezone.utc) + timedelta(minutes=1)  # تخمین حدودی
             logger.info(
                 f"Estimated completion time: {estimated_completion_time.strftime('%H:%M:%S')}"
             )
@@ -279,12 +386,12 @@ class BotScheduler:
             elif activity == "story_reaction":
                 self.perform_story_reaction_activity()
 
-            # محاسبه و لاگ زمان فعالیت بعدی
-            # بر اساس تنظیم interval در تابع start
+            # محاسبه و لاگ زمان فعالیت بعدی - زمان تصادفی برای طبیعی‌تر بودن
+            next_minutes = random.randint(15, 25)
             next_activity_time = datetime.now(
-                timezone.utc) + timedelta(minutes=15)
+                timezone.utc) + timedelta(minutes=next_minutes)
             logger.info(
-                f"Next scheduled activity will start at approximately: {next_activity_time.strftime('%H:%M:%S')}"
+                f"Next scheduled activity will start at approximately: {next_activity_time.strftime('%H:%M:%S')} ({next_minutes} minutes from now)"
             )
 
         except Exception as e:
@@ -294,7 +401,7 @@ class BotScheduler:
                 logger.error(f"Error performing activity: {str(e)}")
 
                 # افزودن ثبت خطا در مانیتور
-                if "login_required" in str(e).lower() or "loginrequired" in str(e).lower() or "Please wait" in str(e):
+                if any(error_text in str(e).lower() for error_text in ["login_required", "loginrequired", "please wait", "rate limit"]):
                     if 'bot_monitor' in globals():
                         bot_monitor.record_error(str(e))
                     else:
@@ -307,10 +414,11 @@ class BotScheduler:
                         "Session expired. Attempting to login again...")
                     self.client.login()
         finally:
-            # آزاد کردن قفل در انتها
+            # آزاد کردن قفل در انتها با بررسی امن
             try:
                 if self.lock.locked():
                     self.lock.release()
+                    self.lock_acquired_time = None
                     logger.info("Lock released after activity")
             except Exception as e:
                 logger.error(f"Error releasing lock: {str(e)}")
@@ -352,7 +460,9 @@ class BotScheduler:
                     f"Followed {count} of my followers that I wasn't following back")
 
             # Add a delay before the next action
-            random_delay()
+            delay = random_delay(self.min_delay, self.max_delay)
+            logger.info(
+                f"Added {delay:.1f} seconds delay after follow activity")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
@@ -360,7 +470,7 @@ class BotScheduler:
             else:
                 logger.error(f"Error in follow activity: {str(e)}")
                 # ثبت خطا در مانیتور
-                if "login_required" in str(e).lower() or "Please wait" in str(e):
+                if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
                     bot_monitor.record_error(
                         f"Follow activity error: {str(e)}")
 
@@ -394,13 +504,19 @@ class BotScheduler:
                 logger.info(f"Unfollowed {count} users who unfollowed me")
 
             # Add a delay before the next action
-            random_delay()
+            delay = random_delay(self.min_delay, self.max_delay)
+            logger.info(
+                f"Added {delay:.1f} seconds delay after unfollow activity")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("unfollow_activity", e)
             else:
                 logger.error(f"Error in unfollow activity: {str(e)}")
+                # ثبت خطا در مانیتور
+                if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
+                    bot_monitor.record_error(
+                        f"Unfollow activity error: {str(e)}")
 
     def perform_like_activity(self):
         """Perform like-related activities"""
@@ -443,17 +559,17 @@ class BotScheduler:
                 logger.info(f"Liked {count} posts from my feed")
 
             # Add a delay before the next action
-            random_delay()
+            delay = random_delay(self.min_delay, self.max_delay)
+            logger.info(f"Added {delay:.1f} seconds delay after like activity")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("like_activity", e)
             else:
-                logger.error(f"Error in follow activity: {str(e)}")
+                logger.error(f"Error in like activity: {str(e)}")
                 # ثبت خطا در مانیتور
-                if "login_required" in str(e).lower() or "Please wait" in str(e):
-                    bot_monitor.record_error(
-                        f"Follow activity error: {str(e)}")
+                if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
+                    bot_monitor.record_error(f"Like activity error: {str(e)}")
 
     def perform_comment_activity(self):
         """Perform comment-related activities"""
@@ -486,17 +602,19 @@ class BotScheduler:
                 logger.info(f"Commented on {count} posts from my feed")
 
             # Add a delay before the next action
-            random_delay()
+            delay = random_delay(self.min_delay, self.max_delay)
+            logger.info(
+                f"Added {delay:.1f} seconds delay after comment activity")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("comment_activity", e)
             else:
-                logger.error(f"Error in follow activity: {str(e)}")
+                logger.error(f"Error in comment activity: {str(e)}")
                 # ثبت خطا در مانیتور
-                if "login_required" in str(e).lower() or "Please wait" in str(e):
+                if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
                     bot_monitor.record_error(
-                        f"Follow activity error: {str(e)}")
+                        f"Comment activity error: {str(e)}")
 
     def perform_direct_activity(self):
         """Perform direct message-related activities"""
@@ -524,13 +642,19 @@ class BotScheduler:
                 logger.info(f"Sent messages to {count} inactive followers")
 
             # Add a delay before the next action
-            random_delay()
+            delay = random_delay(self.min_delay, self.max_delay)
+            logger.info(
+                f"Added {delay:.1f} seconds delay after direct message activity")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("direct_activity", e)
             else:
                 logger.error(f"Error in direct message activity: {str(e)}")
+                # ثبت خطا در مانیتور
+                if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
+                    bot_monitor.record_error(
+                        f"Direct message activity error: {str(e)}")
 
     def perform_story_reaction_activity(self):
         """Perform story reaction-related activities"""
@@ -552,13 +676,19 @@ class BotScheduler:
                 logger.info(f"Reacted to {count} stories from users I follow")
 
             # Add a delay before the next action
-            random_delay()
+            delay = random_delay(self.min_delay, self.max_delay)
+            logger.info(
+                f"Added {delay:.1f} seconds delay after story reaction activity")
 
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("story_reaction_activity", e)
             else:
                 logger.error(f"Error in story reaction activity: {str(e)}")
+                # ثبت خطا در مانیتور
+                if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
+                    bot_monitor.record_error(
+                        f"Story reaction activity error: {str(e)}")
 
     def update_follower_stats(self):
         """Update follower statistics in the database"""

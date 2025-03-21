@@ -1,10 +1,11 @@
 import json
 import os
 import time
+import random
 from pathlib import Path
 from sqlalchemy.orm import Session
 from instagrapi import Client
-from instagrapi.exceptions import LoginRequired
+from instagrapi.exceptions import LoginRequired, RateLimitError, PleaseWaitFewMinutes
 
 from app.config import INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD, SESSION_FILE
 from app.models.database import BotSession
@@ -19,6 +20,8 @@ class InstagramClient:
         self.client = Client()
         self.db = db
         self.logged_in = False
+        # اضافه کردن تایمر برای آخرین زمان لاگین
+        self.last_login_attempt = None
 
     def login(self):
         """Login to Instagram account using session or credentials"""
@@ -30,15 +33,34 @@ class InstagramClient:
                 "Instagram username or password not set in environment variables")
             return False
 
+        # بررسی اینکه آیا به تازگی تلاش برای ورود داشته‌ایم
+        current_time = time.time()
+        # 5 دقیقه
+        if self.last_login_attempt and (current_time - self.last_login_attempt) < 300:
+            logger.warning(
+                "Last login attempt was less than 5 minutes ago. Waiting to avoid rate limits...")
+            remaining = 300 - (current_time - self.last_login_attempt)
+            logger.info(
+                f"Will wait {remaining:.0f} seconds before trying again")
+            time.sleep(remaining)
+
+        # ثبت زمان این تلاش
+        self.last_login_attempt = time.time()
+
         # تلاش برای ورود ساده با نام کاربری و رمز عبور
         try:
             # اضافه کردن تاخیر قبل از لاگین
-            logger.info("Waiting a few seconds before login attempt...")
-            time.sleep(3)  # تاخیر 3 ثانیه قبل از ورود
+            wait_time = random.randint(30, 60)
+            logger.info(f"Waiting {wait_time} seconds before login attempt...")
+            time.sleep(wait_time)  # تاخیر قبل از ورود
 
             # خالی کردن کوکی‌ها و تنظیمات قبلی
             self.client.settings = {}
             self.client.cookie = {}
+
+            # تنظیم پارامترهای بیشتر برای کلاینت
+            self.client.delay_range = [10, 20]  # تاخیر بیشتر بین درخواست‌ها
+            self.client.request_timeout = 30  # زمان انتظار بیشتر برای درخواست‌ها
 
             # ورود با نام کاربری و رمز عبور
             self.logged_in = self.client.login(
@@ -52,11 +74,33 @@ class InstagramClient:
             else:
                 logger.error("Failed to login with credentials")
                 return False
+        except PleaseWaitFewMinutes as e:
+            # خطای محدودیت نرخ درخواست - نیاز به صبر کردن داریم
+            logger.error(f"Rate limit error during login: {str(e)}")
+            logger.info("Will retry after a longer delay (15 minutes)...")
+            time.sleep(900)  # 15 دقیقه صبر می‌کنیم
+            try:
+                self.logged_in = self.client.login(
+                    INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+                if self.logged_in:
+                    logger.info(
+                        "Successfully logged in on second attempt after rate limit")
+                    self._save_session()
+                    return True
+                else:
+                    logger.error(
+                        "Failed to login on second attempt after rate limit")
+                    return False
+            except Exception as retry_error:
+                logger.error(
+                    f"Error during retry login after rate limit: {str(retry_error)}")
+                return False
         except Exception as e:
             logger.error(f"Error during login: {str(e)}")
-            # تلاش دوباره بعد از 5 ثانیه
-            logger.info("Trying again after a short delay...")
-            time.sleep(5)
+            # تلاش دوباره بعد از یک تاخیر طولانی‌تر
+            wait_time = random.randint(60, 120)
+            logger.info(f"Trying again after {wait_time} seconds delay...")
+            time.sleep(wait_time)
             try:
                 self.logged_in = self.client.login(
                     INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
@@ -113,14 +157,24 @@ class InstagramClient:
             try:
                 logger.info(f"Loading session from file: {SESSION_FILE}")
                 self.client.load_settings(SESSION_FILE)
+                # تنظیم پارامترهای بیشتر برای کلاینت
+                # تاخیر بیشتر بین درخواست‌ها
+                self.client.delay_range = [10, 20]
+                self.client.request_timeout = 30  # زمان انتظار بیشتر برای درخواست‌ها
+
                 # Test if session is valid
                 try:
-                    self.client.get_timeline_feed()
+                    # اضافه کردن تاخیر قبل از تست
+                    time.sleep(5)
+                    self.client.get_timeline_feed(amount=1)
                     self.logged_in = True
                     logger.info("Successfully loaded valid session from file")
                     return True
                 except LoginRequired:
                     logger.warning("Session from file is expired")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not validate session from file: {str(e)}")
             except Exception as e:
                 logger.warning(f"Could not load session from file: {str(e)}")
 
@@ -136,16 +190,25 @@ class InstagramClient:
                     f"Loading session from database for {INSTAGRAM_USERNAME}")
                 session_data = json.loads(session_record.session_data)
                 self.client.set_settings(session_data)
+                # تنظیم پارامترهای بیشتر برای کلاینت
+                # تاخیر بیشتر بین درخواست‌ها
+                self.client.delay_range = [10, 20]
+                self.client.request_timeout = 30  # زمان انتظار بیشتر برای درخواست‌ها
 
                 # Test if session is valid
                 try:
-                    self.client.get_timeline_feed()
+                    # اضافه کردن تاخیر قبل از تست
+                    time.sleep(5)
+                    self.client.get_timeline_feed(amount=1)
                     self.logged_in = True
                     logger.info(
                         "Successfully loaded valid session from database")
                     return True
                 except LoginRequired:
                     logger.warning("Session from database is expired")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not validate session from database: {str(e)}")
         except Exception as e:
             logger.warning(f"Could not load session from database: {str(e)}")
 

@@ -188,22 +188,15 @@ def control_bot(request: BotControlRequest):
 def restart_bot():
     """Easy endpoint to restart the bot without needing a POST request with JSON body"""
     try:
-        # ابتدا بات را متوقف می‌کنیم (اگر در حال اجرا باشد)
-        if bot_scheduler and bot_scheduler.running:
-            bot_scheduler.stop()
-
-        # چند لحظه صبر می‌کنیم
-        time.sleep(2)
-
-        # سپس آن را دوباره راه‌اندازی می‌کنیم
-        success = False
-        message = "Bot scheduler not available"
-        status = False
-
+        # استفاده از روش درست راه‌اندازی مجدد
         if bot_scheduler:
-            success = bot_scheduler.start()
+            success = bot_scheduler.restart()
             message = "Bot restarted successfully" if success else "Failed to restart bot"
             status = success
+        else:
+            success = False
+            message = "Bot scheduler not available"
+            status = False
 
         # وضعیت جاری را در پاسخ برمی‌گردانیم
         return {
