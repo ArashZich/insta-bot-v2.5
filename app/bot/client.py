@@ -226,7 +226,7 @@ class InstagramClient:
 
                 # Verify session with a simple request
                 try:
-                    self.client.get_timeline_feed(amount=1)
+                    self.client.get_timeline_feed()
                     self.logged_in = True
                     logger.info(
                         "Successfully loaded and verified session from database")
@@ -245,7 +245,7 @@ class InstagramClient:
 
                 # Verify session with a simple request
                 try:
-                    self.client.get_timeline_feed(amount=1)
+                    self.client.get_timeline_feed()
                     self.logged_in = True
                     logger.info(
                         "Successfully loaded and verified session from file")
