@@ -162,19 +162,12 @@ class InstagramClient:
                 self.client.delay_range = [10, 20]
                 self.client.request_timeout = 30  # زمان انتظار بیشتر برای درخواست‌ها
 
-                # Test if session is valid
-                try:
-                    # اضافه کردن تاخیر قبل از تست
-                    time.sleep(5)
-                    self.client.get_timeline_feed()
-                    self.logged_in = True
-                    logger.info("Successfully loaded valid session from file")
-                    return True
-                except LoginRequired:
-                    logger.warning("Session from file is expired")
-                except Exception as e:
-                    logger.warning(
-                        f"Could not validate session from file: {str(e)}")
+                # به جای تست، فرض می‌کنیم سشن معتبر است
+                self.logged_in = True
+                logger.info(
+                    "Successfully loaded session from file (without validation)")
+                return True
+
             except Exception as e:
                 logger.warning(f"Could not load session from file: {str(e)}")
 
@@ -195,20 +188,12 @@ class InstagramClient:
                 self.client.delay_range = [10, 20]
                 self.client.request_timeout = 30  # زمان انتظار بیشتر برای درخواست‌ها
 
-                # Test if session is valid
-                try:
-                    # اضافه کردن تاخیر قبل از تست
-                    time.sleep(5)
-                    self.client.get_timeline_feed()
-                    self.logged_in = True
-                    logger.info(
-                        "Successfully loaded valid session from database")
-                    return True
-                except LoginRequired:
-                    logger.warning("Session from database is expired")
-                except Exception as e:
-                    logger.warning(
-                        f"Could not validate session from database: {str(e)}")
+                # به جای تست، فرض می‌کنیم سشن معتبر است
+                self.logged_in = True
+                logger.info(
+                    "Successfully loaded session from database (without validation)")
+                return True
+
         except Exception as e:
             logger.warning(f"Could not load session from database: {str(e)}")
 
