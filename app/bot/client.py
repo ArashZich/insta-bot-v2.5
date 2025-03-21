@@ -3,7 +3,6 @@ import os
 import time
 import random
 from pathlib import Path
-
 from sqlalchemy.orm import Session
 from instagrapi import Client
 from instagrapi.exceptions import LoginRequired, RateLimitError, PleaseWaitFewMinutes, ClientError, ClientLoginRequired
@@ -26,36 +25,8 @@ class InstagramClient:
         self.login_retry_count = 0
 
         # تنظیمات کاستوم برای بهبود استفاده از API
-        self.client.delay_range = [30, 50]  # تاخیر بیشتر بین درخواست‌ها
-        self.client.request_timeout = 120
-
-        # تنظیمات مرورگر و دستگاه برای افزایش اعتبار درخواست‌ها
-        self.setup_device_and_user_agent()
-
-    def setup_device_and_user_agent(self):
-        """تنظیم اطلاعات دستگاه و User-Agent برای اعتبار بیشتر"""
-        try:
-            # تنظیم User-Agent واقعی از یک گوشی اندروید
-            user_agent = "Instagram 219.0.0.12.117 Android (30/11; 480dpi; 1080x2158; samsung; SM-G981B; x1s; exynos990; en_US; 346138365)"
-
-            # تنظیم اطلاعات دستگاه
-            self.client.user_agent = user_agent
-            self.client.device_settings = {
-                "app_version": "219.0.0.12.117",
-                "android_version": 30,
-                "android_release": "11",
-                "dpi": "480dpi",
-                "resolution": "1080x2158",
-                "manufacturer": "samsung",
-                "device": "SM-G981B",
-                "model": "x1s",
-                "cpu": "exynos990",
-                "version_code": "346138365",
-            }
-
-            logger.info(f"Device and user-agent setup successful")
-        except Exception as e:
-            logger.error(f"Error setting up device and user-agent: {str(e)}")
+        self.client.delay_range = [10, 20]  # تاخیر بین درخواست‌ها
+        self.client.request_timeout = 60
 
     def login(self, force=False):
         """Login to Instagram account using session or credentials"""
@@ -131,7 +102,7 @@ class InstagramClient:
             try:
                 # تنظیم مجدد کلاینت
                 self.client = Client(request_timeout=120)
-                self.setup_device_and_user_agent()
+                self.client.delay_range = [10, 20]
 
                 # تلاش مجدد برای ورود
                 self.logged_in = self.client.login(
@@ -159,7 +130,7 @@ class InstagramClient:
             try:
                 # ایجاد یک نمونه جدید از کلاینت و تلاش دوباره
                 self.client = Client(request_timeout=120)
-                self.setup_device_and_user_agent()
+                self.client.delay_range = [10, 20]
 
                 logger.info(
                     "Retrying with fresh client after login required error")
@@ -187,7 +158,7 @@ class InstagramClient:
             try:
                 # ایجاد یک نمونه جدید از کلاینت
                 self.client = Client(request_timeout=120)
-                self.setup_device_and_user_agent()
+                self.client.delay_range = [10, 20]
 
                 self.logged_in = self.client.login(
                     INSTAGRAM_USERNAME, password)
@@ -252,7 +223,6 @@ class InstagramClient:
                     f"Loading session from database for {INSTAGRAM_USERNAME}")
                 session_data = json.loads(session_record.session_data)
                 self.client.set_settings(session_data)
-                self.setup_device_and_user_agent()  # Apply custom settings after loading session
 
                 # Verify session with a simple request
                 try:
@@ -272,7 +242,6 @@ class InstagramClient:
             if os.path.exists(SESSION_FILE):
                 logger.info(f"Loading session from file: {SESSION_FILE}")
                 self.client.load_settings(SESSION_FILE)
-                self.setup_device_and_user_agent()  # Apply custom settings after loading session
 
                 # Verify session with a simple request
                 try:
