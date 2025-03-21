@@ -35,11 +35,11 @@ class InstagramClient:
 
         # بررسی اینکه آیا به تازگی تلاش برای ورود داشته‌ایم
         current_time = time.time()
-        # 5 دقیقه
-        if self.last_login_attempt and (current_time - self.last_login_attempt) < 300:
+        # افزایش فاصله بین تلاش‌های ورود به 15 دقیقه
+        if self.last_login_attempt and (current_time - self.last_login_attempt) < 900:
             logger.warning(
-                "Last login attempt was less than 5 minutes ago. Waiting to avoid rate limits...")
-            remaining = 300 - (current_time - self.last_login_attempt)
+                "Last login attempt was less than 15 minutes ago. Waiting to avoid rate limits...")
+            remaining = 900 - (current_time - self.last_login_attempt)
             logger.info(
                 f"Will wait {remaining:.0f} seconds before trying again")
             time.sleep(remaining)
@@ -49,18 +49,19 @@ class InstagramClient:
 
         # تلاش برای ورود ساده با نام کاربری و رمز عبور
         try:
-            # اضافه کردن تاخیر قبل از لاگین
-            wait_time = random.randint(30, 60)
+            # افزایش تاخیر قبل از لاگین
+            wait_time = random.randint(60, 120)
             logger.info(f"Waiting {wait_time} seconds before login attempt...")
-            time.sleep(wait_time)  # تاخیر قبل از ورود
+            time.sleep(wait_time)  # تاخیر بیشتر قبل از ورود
 
             # خالی کردن کوکی‌ها و تنظیمات قبلی
             self.client.settings = {}
             self.client.cookie = {}
 
             # تنظیم پارامترهای بیشتر برای کلاینت
-            self.client.delay_range = [10, 20]  # تاخیر بیشتر بین درخواست‌ها
-            self.client.request_timeout = 30  # زمان انتظار بیشتر برای درخواست‌ها
+            # افزایش تاخیر بیشتر بین درخواست‌ها
+            self.client.delay_range = [30, 50]
+            self.client.request_timeout = 60  # افزایش زمان انتظار برای درخواست‌ها
 
             # ورود با نام کاربری و رمز عبور
             self.logged_in = self.client.login(
@@ -77,8 +78,8 @@ class InstagramClient:
         except PleaseWaitFewMinutes as e:
             # خطای محدودیت نرخ درخواست - نیاز به صبر کردن داریم
             logger.error(f"Rate limit error during login: {str(e)}")
-            logger.info("Will retry after a longer delay (15 minutes)...")
-            time.sleep(900)  # 15 دقیقه صبر می‌کنیم
+            logger.info("Will retry after a longer delay (45 minutes)...")
+            time.sleep(2700)  # 45 دقیقه صبر می‌کنیم
             try:
                 self.logged_in = self.client.login(
                     INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
@@ -98,7 +99,7 @@ class InstagramClient:
         except Exception as e:
             logger.error(f"Error during login: {str(e)}")
             # تلاش دوباره بعد از یک تاخیر طولانی‌تر
-            wait_time = random.randint(60, 120)
+            wait_time = random.randint(180, 300)
             logger.info(f"Trying again after {wait_time} seconds delay...")
             time.sleep(wait_time)
             try:

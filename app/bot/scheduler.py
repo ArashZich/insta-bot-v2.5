@@ -238,8 +238,15 @@ class BotScheduler:
         try:
             # بررسی اگر استراحت در حال انجام است و زمان آن گذشته
             if self.is_resting and self.rest_start_time and self.rest_duration > 0:
-                elapsed_time = (datetime.now() -
-                                self.rest_start_time).total_seconds()
+                # اطمینان از وجود timezone یکسان برای هر دو زمان
+                if self.rest_start_time.tzinfo:
+                    current_time = datetime.now(timezone.utc)
+                else:
+                    current_time = datetime.now()
+
+                elapsed_time = (
+                    current_time - self.rest_start_time).total_seconds()
+
                 if elapsed_time >= self.rest_duration:
                     logger.warning(
                         f"Rest period of {self.rest_duration} seconds has expired but lock wasn't released. Forcibly releasing lock.")
@@ -255,10 +262,17 @@ class BotScheduler:
                             logger.error(
                                 f"Error releasing lock after rest: {str(e)}")
 
-            # بررسی اگر قفل گرفته شده و بیش از حد معقول گذشته (احتمالاً خطایی رخ داده)
+            # بررسی اگر قفل گرفته شده و بیش از حد معقول گذشته
             elif self.lock.locked() and self.lock_acquired_time:
-                elapsed_time = (datetime.now() -
-                                self.lock_acquired_time).total_seconds()
+                # اطمینان از سازگاری timezone
+                if self.lock_acquired_time.tzinfo:
+                    current_time = datetime.now(timezone.utc)
+                else:
+                    current_time = datetime.now()
+
+                elapsed_time = (
+                    current_time - self.lock_acquired_time).total_seconds()
+
                 if elapsed_time > 1800:  # 30 دقیقه
                     logger.warning(
                         f"Lock has been held for {elapsed_time/60:.1f} minutes without release. Forcibly releasing.")
@@ -276,8 +290,13 @@ class BotScheduler:
         """Perform a bot activity based on schedule and limits"""
         # بررسی وضعیت استراحت قبل از تلاش برای گرفتن قفل
         if self.is_resting:
-            # استفاده از datetime.now
+            # استفاده از datetime.now با timezone
             current_time = datetime.now(timezone.utc)
+            if self.rest_start_time and self.rest_start_time.tzinfo is None:
+                # اگر rest_start_time بدون timezone است، آن را به timezone.utc تبدیل می‌کنیم
+                self.rest_start_time = self.rest_start_time.replace(
+                    tzinfo=timezone.utc)
+
             elapsed_time = (
                 current_time - self.rest_start_time).total_seconds()
             if elapsed_time < self.rest_duration:
@@ -312,34 +331,52 @@ class BotScheduler:
                         logger.error(
                             f"Error releasing lock after rest: {str(e)}")
 
-        # Use lock to prevent concurrent actions with timeout
+        # افزایش timeout برای قفل
         try:
-            lock_acquired = self.lock.acquire(blocking=True, timeout=10)
+            lock_acquired = self.lock.acquire(blocking=True, timeout=20)
             if not lock_acquired:
                 logger.warning(
-                    "Could not acquire lock after 10 seconds, another activity might be in progress")
+                    "Could not acquire lock after 20 seconds, another activity might be in progress")
                 return
 
-            # ذخیره زمان گرفتن قفل
+            # ذخیره زمان گرفتن قفل با timezone
             self.lock_acquired_time = datetime.now(timezone.utc)
             logger.info("Lock acquired, preparing to perform activity")
 
             # اضافه کردن تاخیر تصادفی قبل از شروع
-            wait_time = random.randint(2, 8)
+            wait_time = random.randint(5, 15)
             logger.info(
                 f"Waiting {wait_time} seconds before starting activity...")
             time.sleep(wait_time)
 
-            # Check if we should take a rest
-            if should_rest():
+            # بررسی نیاز به login مجدد
+            if not self.client.logged_in:
+                logger.info(
+                    "Session appears to be expired, attempting to login again...")
+                login_result = self.client.login()
+                if not login_result:
+                    logger.error("Failed to login, skipping activity")
+                    # آزاد کردن قفل
+                    self.lock.release()
+                    self.lock_acquired_time = None
+                    # استراحت طولانی‌تر قبل از تلاش بعدی
+                    self.is_resting = True
+                    self.rest_start_time = datetime.now(timezone.utc)
+                    self.rest_duration = 1800  # 30 دقیقه استراحت
+                    logger.info(
+                        f"Taking a 30 minute break after login failure")
+                    return
+
+            # Check if we should take a rest - افزایش احتمال استراحت
+            if random.random() < 0.2:  # 20% chance to rest
                 logger.info("Decision made to take a rest")
 
                 # تنظیم وضعیت استراحت
                 self.is_resting = True
                 self.rest_start_time = datetime.now(timezone.utc)
 
-                # کم کردن زمان استراحت برای تست (بین 1 تا 5 دقیقه)
-                rest_minutes = random.uniform(3, 8)
+                # استراحت طولانی‌تر برای جلوگیری از محدودیت‌های اینستاگرام (بین 15 تا 40 دقیقه)
+                rest_minutes = random.uniform(15, 40)
                 self.rest_duration = rest_minutes * 60
 
                 logger.info(
@@ -356,13 +393,10 @@ class BotScheduler:
                     logger.info("Lock released before rest")
                 return
 
-            # Choose a random activity if in random mode, otherwise cycle through activities
-            if RANDOM_ACTIVITY_MODE:
-                activity = choose_random_activity()
-            else:
-                # In a real implementation, you might want a more sophisticated approach
-                # For simplicity, we'll just use random here as well
-                activity = choose_random_activity()
+            # انتخاب فعالیت با وزن بیشتر برای فعالیت‌های امن‌تر مانند لایک
+            activities = ["follow", "unfollow", "like", "like",
+                          "like", "comment", "direct", "story_reaction"]
+            activity = random.choice(activities)
 
             logger.info(f"Performing activity: {activity}")
             # اضافه کردن تخمین زمان پایان فعالیت
@@ -386,8 +420,8 @@ class BotScheduler:
             elif activity == "story_reaction":
                 self.perform_story_reaction_activity()
 
-            # محاسبه و لاگ زمان فعالیت بعدی - زمان تصادفی برای طبیعی‌تر بودن
-            next_minutes = random.randint(15, 25)
+            # محاسبه و لاگ زمان فعالیت بعدی - افزایش فاصله بین فعالیت‌ها
+            next_minutes = random.randint(20, 35)
             next_activity_time = datetime.now(
                 timezone.utc) + timedelta(minutes=next_minutes)
             logger.info(
@@ -401,7 +435,20 @@ class BotScheduler:
                 logger.error(f"Error performing activity: {str(e)}")
 
                 # افزودن ثبت خطا در مانیتور
-                if any(error_text in str(e).lower() for error_text in ["login_required", "loginrequired", "please wait", "rate limit"]):
+                rate_limit_indicators = [
+                    "login_required", "loginrequired", "please wait", "rate limit", "too many", "timeout"]
+                if any(error_text in str(e).lower() for error_text in rate_limit_indicators):
+                    logger.warning(
+                        "Rate limit or login issue detected, will take a long break")
+
+                    # تنظیم یک استراحت طولانی‌تر در صورت برخورد با محدودیت
+                    self.is_resting = True
+                    self.rest_start_time = datetime.now(timezone.utc)
+                    self.rest_duration = random.randint(
+                        2700, 3600)  # 45-60 دقیقه
+                    logger.info(
+                        f"Setting extended rest period for {self.rest_duration/60:.1f} minutes due to rate limits")
+
                     if 'bot_monitor' in globals():
                         bot_monitor.record_error(str(e))
                     else:
@@ -411,7 +458,8 @@ class BotScheduler:
                 # اگر خطا مربوط به نشست بود، سعی در ورود مجدد
                 if "login_required" in str(e).lower() or "loginrequired" in str(e).lower():
                     logger.info(
-                        "Session expired. Attempting to login again...")
+                        "Session expired. Attempting to login again after delay...")
+                    time.sleep(300)  # 5 دقیقه تاخیر قبل از تلاش مجدد
                     self.client.login()
         finally:
             # آزاد کردن قفل در انتها با بررسی امن
