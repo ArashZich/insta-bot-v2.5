@@ -47,10 +47,9 @@ RANDOM_ACTIVITY_MODE = os.getenv(
 # مقادیر به ساعت - می‌توانید برای تست کاهش دهید
 # 0.5 ساعت = 30 دقیقه = 1800 ثانیه
 # 2 ساعت = 120 دقیقه = 7200 ثانیه
-# تغییر به حدود 5 دقیقه
-REST_PERIOD_MIN = float(os.getenv("REST_PERIOD_MIN", "0.08"))
-# تغییر به حدود 15 دقیقه
-REST_PERIOD_MAX = float(os.getenv("REST_PERIOD_MAX", "0.25"))
+# تغییر به حدود 1-5 دقیقه
+REST_PERIOD_MIN = float(os.getenv("REST_PERIOD_MIN", "0.01"))  # 1 دقیقه
+REST_PERIOD_MAX = float(os.getenv("REST_PERIOD_MAX", "0.08"))  # 5 دقیقه
 
 # API settings
 API_HOST = os.getenv("API_HOST", "0.0.0.0")

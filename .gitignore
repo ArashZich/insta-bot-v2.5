@@ -50,3 +50,4 @@ data/session.json
 data/bot.log
 
 .DS_Store
+sessions
