@@ -20,8 +20,8 @@ SessionLocal = None
 
 
 def get_engine():
-    max_retries = 15
-    retry_delay = 5  # seconds
+    max_retries = 20
+    retry_delay = 10  # seconds
 
     for attempt in range(max_retries):
         try:
@@ -31,11 +31,12 @@ def get_engine():
             # اول تلاش می‌کنیم مستقیماً به دیتابیس مشخص شده متصل شویم
             engine = create_engine(
                 DATABASE_URL,
-                pool_pre_ping=True,  # پینگ کردن پیش از استفاده از اتصال
-                pool_recycle=1800,  # بازیافت کانکشن‌ها هر 30 دقیقه
-                pool_size=10,  # اندازه استخر اتصالات
-                max_overflow=20,  # حداکثر اتصال اضافی
-                echo=False  # عدم نمایش دستورات SQL
+                pool_pre_ping=True,
+                pool_recycle=900,  # کاهش از 1800 به 900 ثانیه برای بازسازی سریع‌تر کانکشن‌ها
+                pool_size=5,     # کاهش از 10 به 5 برای کاهش فشار بر دیتابیس
+                max_overflow=10,  # کاهش از 20 به 10
+                echo=False,
+                connect_args={'connect_timeout': 15}  # افزودن تایم‌اوت اتصال
             )
 
             # تست اتصال

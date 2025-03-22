@@ -20,19 +20,26 @@ services:
         condition: service_healthy
     networks:
       - instagram-bot-network
-    # ایجاد تاخیر بیشتر برای اطمینان از آماده بودن دیتابیس
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # اجرای دو برنامه به طور همزمان
     command: >
-      bash -c "sleep 20 && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      bash -c "sleep 30 &&
+              python db_recovery.py & 
+              uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   postgres:
-    image: postgres:15
+    image: postgres:13-alpine  # استفاده از نسخه alpine برای سبک‌تر بودن
     container_name: instagram_bot_db
     restart: always
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
-      - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -44,9 +51,9 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
-      start_period: 30s
-    # افزودن پارامترهای پایداری بیشتر
-    command: postgres -c shared_buffers=256MB -c max_connections=200
+      start_period: 10s
+    # تنظیمات بهینه‌سازی شده برای PostgreSQL
+    command: postgres -c shared_buffers=128MB -c max_connections=100 -c fsync=on -c synchronous_commit=on
 
 networks:
   instagram-bot-network:
@@ -54,3 +61,4 @@ networks:
 
 volumes:
   postgres_data:
+    name: instagram_bot_postgres_data  # نام مشخص برای حجم

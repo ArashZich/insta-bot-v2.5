@@ -224,13 +224,15 @@ class InstagramClient:
                 session_data = json.loads(session_record.session_data)
                 self.client.set_settings(session_data)
 
-                # Verify session with a simple request
+                # Verify session with a simple request - تغییر متد برای سازگاری
                 try:
-                    self.client.get_timeline_feed()
-                    self.logged_in = True
-                    logger.info(
-                        "Successfully loaded and verified session from database")
-                    return True
+                    # روش متفاوت برای بررسی اعتبار نشست
+                    me = self.client.account_info()
+                    if me:
+                        self.logged_in = True
+                        logger.info(
+                            "Successfully loaded and verified session from database")
+                        return True
                 except Exception as verify_error:
                     logger.warning(
                         f"Database session verification failed: {str(verify_error)}")
@@ -243,13 +245,15 @@ class InstagramClient:
                 logger.info(f"Loading session from file: {SESSION_FILE}")
                 self.client.load_settings(SESSION_FILE)
 
-                # Verify session with a simple request
+                # Verify session with a simple request - تغییر متد برای سازگاری
                 try:
-                    self.client.get_timeline_feed()
-                    self.logged_in = True
-                    logger.info(
-                        "Successfully loaded and verified session from file")
-                    return True
+                    # روش متفاوت برای بررسی اعتبار نشست
+                    me = self.client.account_info()
+                    if me:
+                        self.logged_in = True
+                        logger.info(
+                            "Successfully loaded and verified session from file")
+                        return True
                 except Exception as verify_error:
                     logger.warning(
                         f"File session verification failed: {str(verify_error)}")

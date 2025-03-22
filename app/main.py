@@ -70,7 +70,7 @@ async def startup_event():
     global routes_module  # اضافه کردن این خط
 
     retry_count = 0
-    max_retries = 5
+    max_retries = 10  # افزایش از 5 به 10
 
     while retry_count < max_retries:
         try:
@@ -83,13 +83,23 @@ async def startup_event():
                 logger.error(
                     f"Database initialization error (attempt {retry_count+1}/{max_retries}): {str(db_error)}")
                 if retry_count < max_retries - 1:
-                    logger.info(f"Waiting 10 seconds before retry...")
-                    await asyncio.sleep(10)
+                    # افزایش زمان انتظار
+                    logger.info(f"Waiting 15 seconds before retry...")
+                    await asyncio.sleep(15)
                     retry_count += 1
                     continue
                 else:
                     logger.warning(
                         "Continuing without database initialization")
+
+            # تلاش مجدد برای ایجاد جداول
+            try:
+                from app.models.database import Base, engine
+                Base.metadata.create_all(bind=engine)
+                logger.info("Attempted to create tables again for redundancy")
+            except Exception as tables_error:
+                logger.warning(
+                    f"Secondary table creation attempt: {str(tables_error)}")
 
             # Initialize bot scheduler
             try:
@@ -102,6 +112,8 @@ async def startup_event():
 
                 # اضافه کردن شروع خودکار بات - اجرای اتوماتیک
                 try:
+                    # کمی تأخیر برای اطمینان از آماده بودن دیتابیس
+                    await asyncio.sleep(10)
                     logger.info("Starting bot automatically...")
                     if bot_scheduler.initialize():  # اطمینان از مقداردهی اولیه
                         bot_scheduler.start()
@@ -126,8 +138,9 @@ async def startup_event():
             logger.error(
                 f"Error during startup (attempt {retry_count+1}/{max_retries}): {str(e)}")
             if retry_count < max_retries - 1:
-                logger.info(f"Waiting 10 seconds before retry...")
-                await asyncio.sleep(10)
+                # افزایش زمان انتظار
+                logger.info(f"Waiting 15 seconds before retry...")
+                await asyncio.sleep(15)
                 retry_count += 1
             else:
                 logger.critical(
