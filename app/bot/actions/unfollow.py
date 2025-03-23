@@ -310,7 +310,7 @@ class UnfollowAction:
             logger.error(f"Error unfollowing non-followers: {str(e)}")
             return 0
 
-    def unfollow_old_followings(self, days_threshold=7, max_users=10):
+    def unfollow_old_followings(self, days_threshold=30, max_users=10):
         """Unfollow users we've been following for more than X days who didn't follow back"""
         if not self.can_perform_action():
             logger.info(

@@ -725,8 +725,8 @@ class BotScheduler:
                     f"Unfollowed {count} users who don't follow me back")
 
             elif action == "unfollow_old_followings":
-                # Random days threshold between 7-14 days
-                days = random.randint(7, 14)
+                # تغییر زمان آنفالو به بین 21 تا 30 روز
+                days = random.randint(21, 30)
                 count = self.actions.unfollow.unfollow_old_followings(
                     days_threshold=days, max_users=2)
                 logger.info(
