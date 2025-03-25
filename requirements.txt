@@ -1,5 +1,4 @@
-# instagrapi==2.1.3
-instagrapi==1.30.0
+instagrapi==2.1.3
 fastapi==0.110.0
 uvicorn==0.29.0
 sqlalchemy==1.4.46
