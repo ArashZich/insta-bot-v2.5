@@ -38,36 +38,17 @@ class InstagramClient:
                 "Instagram username or password not set in environment variables")
             return False
 
-        # بررسی اینکه آیا به تازگی تلاش برای ورود داشته‌ایم
-        current_time = time.time()
-        # افزایش فاصله بین تلاش‌های ورود به 20 دقیقه
-        if not force and self.last_login_attempt and (current_time - self.last_login_attempt) < 1200:
-            logger.warning(
-                "Last login attempt was less than 20 minutes ago. Waiting to avoid rate limits...")
-            remaining = 1200 - (current_time - self.last_login_attempt)
-            logger.info(
-                f"Will wait {remaining:.0f} seconds before trying again")
-            time.sleep(remaining)
+        # همیشه تنظیمات قبلی رو پاک کنیم
+        self.client.settings = {}
+        self.client.cookie = {}
+        logger.info("Cleared previous settings and cookies for fresh login")
 
-        # ثبت زمان این تلاش
-        self.last_login_attempt = time.time()
-
-        # افزایش شمارنده تلاش‌ها
-        self.login_retry_count += 1
+        # افزودن تاخیر قبل از لاگین برای جلوگیری از محدودیت‌ها
+        wait_time = random.randint(20, 40)
+        logger.info(f"Waiting {wait_time} seconds before login attempt...")
+        time.sleep(wait_time)
 
         try:
-            # خالی کردن کوکی‌ها و تنظیمات قبلی
-            if force or self.login_retry_count > 2:
-                self.client.settings = {}
-                self.client.cookie = {}
-                logger.info(
-                    "Cleared previous settings and cookies for fresh login")
-
-            # افزایش تاخیر قبل از لاگین
-            wait_time = random.randint(60, 180)
-            logger.info(f"Waiting {wait_time} seconds before login attempt...")
-            time.sleep(wait_time)  # تاخیر بیشتر قبل از ورود
-
             # ورود با نام کاربری و رمز عبور
             if INSTAGRAM_PASSWORD.startswith('$enc'):
                 # در حالتی که رمز به صورت رمزگذاری شده ذخیره شده باشد
@@ -82,44 +63,46 @@ class InstagramClient:
 
             if self.logged_in:
                 logger.info("Successfully logged in with credentials")
-                # ریست کردن شمارنده تلاش‌ها پس از ورود موفق
-                self.login_retry_count = 0
                 # ذخیره جلسه
                 self._save_session()
                 return True
             else:
                 logger.error("Failed to login with credentials")
+                # تلاش مجدد بعد از یک تاخیر
+                time.sleep(60)
+
+                # تلاش مجدد با تنظیمات تازه
+                self.client = Client(request_timeout=120)
+                self.client.delay_range = [10, 20]
+                self.logged_in = self.client.login(
+                    INSTAGRAM_USERNAME, password)
+
+                if self.logged_in:
+                    logger.info("Successfully logged in on second attempt")
+                    self._save_session()
+                    return True
+
                 return False
 
-        except PleaseWaitFewMinutes as e:
-            # خطای محدودیت نرخ درخواست - نیاز به صبر کردن داریم
-            wait_time = 60 * 45  # 45 دقیقه
-            logger.error(f"Rate limit error during login: {str(e)}")
-            logger.info(
-                f"Will retry after {wait_time/60:.0f} minutes delay...")
-            time.sleep(wait_time)  # 45 دقیقه صبر می‌کنیم
+        except Exception as e:
+            logger.error(f"Error during login: {str(e)}")
+            time.sleep(60)  # یک دقیقه صبر کنیم و دوباره تلاش کنیم
 
             try:
-                # تنظیم مجدد کلاینت
+                # ایجاد یک نمونه جدید از کلاینت
                 self.client = Client(request_timeout=120)
                 self.client.delay_range = [10, 20]
 
-                # تلاش مجدد برای ورود
                 self.logged_in = self.client.login(
                     INSTAGRAM_USERNAME, password)
                 if self.logged_in:
-                    logger.info(
-                        "Successfully logged in on second attempt after rate limit")
-                    self.login_retry_count = 0
+                    logger.info("Successfully logged in after error retry")
                     self._save_session()
                     return True
                 else:
-                    logger.error(
-                        "Failed to login on second attempt after rate limit")
                     return False
             except Exception as retry_error:
-                logger.error(
-                    f"Error during retry login after rate limit: {str(retry_error)}")
+                logger.error(f"Error during retry login: {str(retry_error)}")
                 return False
 
         except (ClientLoginRequired, LoginRequired) as e:

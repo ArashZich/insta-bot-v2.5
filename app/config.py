@@ -27,29 +27,27 @@ if SQLITE_FALLBACK:
 SESSION_PATH = os.getenv("SESSION_PATH", "/app/sessions")
 SESSION_FILE = Path(SESSION_PATH) / f"{INSTAGRAM_USERNAME}.json"
 
-# Action limits - تنظیم مقادیر منطقی‌تر
+# افزایش فاصله زمانی بین فعالیت‌ها
 MIN_DELAY_BETWEEN_ACTIONS = int(
-    os.getenv("MIN_DELAY_BETWEEN_ACTIONS", 60))  # حداقل 60 ثانیه
+    os.getenv("MIN_DELAY_BETWEEN_ACTIONS", 120))  # حداقل 2 دقیقه
 MAX_DELAY_BETWEEN_ACTIONS = int(
-    os.getenv("MAX_DELAY_BETWEEN_ACTIONS", 180))  # حداکثر 180 ثانیه
-DAILY_FOLLOW_LIMIT = int(os.getenv("DAILY_FOLLOW_LIMIT", 10))  # کاهش به 10
-DAILY_UNFOLLOW_LIMIT = int(os.getenv("DAILY_UNFOLLOW_LIMIT", 10))  # کاهش به 10
-DAILY_LIKE_LIMIT = int(os.getenv("DAILY_LIKE_LIMIT", 25))  # کاهش به 25
-DAILY_COMMENT_LIMIT = int(os.getenv("DAILY_COMMENT_LIMIT", 5))  # کاهش به 5
-DAILY_DIRECT_LIMIT = int(os.getenv("DAILY_DIRECT_LIMIT", 3))  # کاهش به 3
-DAILY_STORY_REACTION_LIMIT = int(
-    os.getenv("DAILY_STORY_REACTION_LIMIT", 5))  # کاهش به 5
+    os.getenv("MAX_DELAY_BETWEEN_ACTIONS", 300))  # حداکثر 5 دقیقه
+
+
+DAILY_FOLLOW_LIMIT = int(os.getenv("DAILY_FOLLOW_LIMIT", 5))
+DAILY_UNFOLLOW_LIMIT = int(os.getenv("DAILY_UNFOLLOW_LIMIT", 5))
+DAILY_LIKE_LIMIT = int(os.getenv("DAILY_LIKE_LIMIT", 15))
+DAILY_COMMENT_LIMIT = int(os.getenv("DAILY_COMMENT_LIMIT", 2))
+DAILY_DIRECT_LIMIT = int(os.getenv("DAILY_DIRECT_LIMIT", 1))
+DAILY_STORY_REACTION_LIMIT = int(os.getenv("DAILY_STORY_REACTION_LIMIT", 3))
 
 # Bot behavior - تنظیم زمان استراحت
 RANDOM_ACTIVITY_MODE = os.getenv(
     "RANDOM_ACTIVITY_MODE", "True").lower() == "true"
 
-# مقادیر به ساعت - می‌توانید برای تست کاهش دهید
-# 0.5 ساعت = 30 دقیقه = 1800 ثانیه
-# 2 ساعت = 120 دقیقه = 7200 ثانیه
-# تغییر به حدود 1-5 دقیقه
-REST_PERIOD_MIN = float(os.getenv("REST_PERIOD_MIN", "0.01"))  # 1 دقیقه
-REST_PERIOD_MAX = float(os.getenv("REST_PERIOD_MAX", "0.08"))  # 5 دقیقه
+REST_PERIOD_MIN = float(os.getenv("REST_PERIOD_MIN", "0.25"))  # حداقل 15 دقیقه
+REST_PERIOD_MAX = float(
+    os.getenv("REST_PERIOD_MAX", "0.75"))  # حداکثر 45 دقیقه
 
 # API settings
 API_HOST = os.getenv("API_HOST", "0.0.0.0")

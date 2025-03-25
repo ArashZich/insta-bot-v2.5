@@ -298,7 +298,7 @@ class BotScheduler:
             if not self.client.logged_in:
                 logger.warning(
                     "Login session appears to be inactive. Attempting to login...")
-                login_result = self.client.login()
+                login_result = self.client.login(force=True)
                 if login_result:
                     logger.info("Successfully refreshed login session")
                     return True
@@ -309,25 +309,23 @@ class BotScheduler:
             # حتی اگر ظاهراً لاگین هستیم، یک عملیات ساده انجام دهیم تا مطمئن شویم
             try:
                 # یک عملیات ساده که به احتمال زیاد با محدودیت‌های اینستاگرام برخورد نمی‌کند
-                _ = self.client.get_client().get_timeline_feed(amount=1)
+                # تغییر به استفاده از تابعی که پارامتر amount نداره
+                _ = self.client.get_client().get_timeline_feed()
                 logger.info("Login session is healthy")
                 return True
             except Exception as check_error:
-                if "login_required" in str(check_error).lower() or "loginrequired" in str(check_error).lower():
-                    logger.warning(
-                        "Login session expired. Attempting to login again...")
-                    login_result = self.client.login(force=True)
-                    if login_result:
-                        logger.info(
-                            "Successfully refreshed login session after check")
-                        return True
-                    else:
-                        logger.error(
-                            "Failed to refresh login session after check")
-                        return False
+                logger.warning(f"Error checking session: {str(check_error)}")
+
+                # در صورت هر خطایی، دوباره لاگین کنیم
+                logger.warning(
+                    "Session check failed. Attempting to login again...")
+                login_result = self.client.login(force=True)
+                if login_result:
+                    logger.info(
+                        "Successfully refreshed login session after check")
+                    return True
                 else:
-                    logger.error(
-                        f"Error checking login health: {str(check_error)}")
+                    logger.error("Failed to refresh login session after check")
                     return False
 
         except Exception as e:
