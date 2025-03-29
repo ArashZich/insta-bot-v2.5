@@ -10,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
     volumes:
-      - ./postgres-data:/var/lib/postgresql/data  # مسیر جدید برای ذخیره داده‌ها
+      - ./postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     networks:
@@ -36,6 +36,8 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
+      # اضافه کردن متغیر محیطی DATABASE_URL
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
     depends_on:
       postgres:
         condition: service_healthy

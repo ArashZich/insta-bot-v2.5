@@ -11,6 +11,9 @@ DB_PORT = os.getenv('DB_PORT', '5432')
 DB_USER = os.getenv('DB_USER', 'postgres')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'postgres')
 DB_NAME = os.getenv('DB_NAME', 'instagrambot')
+DATABASE_URL = os.getenv(
+    'DATABASE_URL', f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+SQLITE_FALLBACK = os.getenv('SQLITE_FALLBACK', 'False').lower() == 'true'
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("db_recovery")
@@ -18,6 +21,11 @@ logger = logging.getLogger("db_recovery")
 
 def ensure_database_exists():
     """اطمینان از وجود دیتابیس و ایجاد آن در صورت نیاز"""
+    # اگر از SQLite استفاده می‌کنیم، نیازی به ایجاد دیتابیس نیست
+    if DATABASE_URL.startswith('sqlite') or SQLITE_FALLBACK:
+        logger.info("Using SQLite database, no need to create database")
+        return True
+
     try:
         # اتصال به postgres برای بررسی وجود دیتابیس
         conn = psycopg2.connect(
@@ -48,15 +56,21 @@ def ensure_database_exists():
         return True
     except Exception as e:
         logger.error(f"خطا در بررسی/ایجاد دیتابیس: {str(e)}")
+        if SQLITE_FALLBACK:
+            logger.warning("استفاده از SQLite به عنوان جایگزین")
+            return True
         return False
 
 
 def check_and_create_tables():
     """بررسی وجود جداول و ایجاد آنها در صورت نیاز"""
     try:
-        # ایجاد اتصال به دیتابیس اصلی
-        engine = create_engine(
-            f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+        # ایجاد اتصال به دیتابیس
+        if DATABASE_URL.startswith('sqlite') or SQLITE_FALLBACK:
+            engine = create_engine('sqlite:///instagram_bot.db')
+        else:
+            engine = create_engine(
+                f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
         # تست اتصال
         with engine.connect() as conn:
