@@ -7,19 +7,21 @@ from app.models.database import create_tables, engine, Base
 from sqlalchemy import text
 from pathlib import Path
 
-# تلاش برای import کردن ماژول بکاپ
-try:
-    from db_backup import check_db_integrity, restore_backup, create_backup
-    backup_module_available = True
-except ImportError:
-    backup_module_available = False
-
+# تنظیمات لاگینگ
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("db_recovery")
 
 # مسیر پوشه بکاپ‌ها
 BACKUP_DIR = Path("database_backups")
 BACKUP_DIR.mkdir(exist_ok=True)
+
+# تلاش برای import کردن ماژول بکاپ
+try:
+    from db_backup import check_db_integrity, restore_backup, create_backup
+    backup_module_available = True
+except ImportError:
+    backup_module_available = False
+    logger.warning("ماژول پشتیبان‌گیری در دسترس نیست")
 
 
 def check_db_and_recover():
@@ -42,10 +44,15 @@ def check_db_and_recover():
             try:
                 with engine.connect() as conn:
                     # بررسی وجود جدول bot_activities
-                    result = conn.execute(
-                        text("SELECT 1 FROM bot_activities LIMIT 1"))
-                    result.close()
-                    logger.info("جدول bot_activities موجود است")
+                    try:
+                        result = conn.execute(
+                            text("SELECT 1 FROM bot_activities LIMIT 1"))
+                        result.close()
+                        logger.info("جدول bot_activities موجود است")
+                    except Exception:
+                        logger.warning(
+                            "جدول bot_activities موجود نیست یا خالی است")
+                        db_healthy = False
 
                     # جداول دیگر نیز چک شوند
                     tables_to_check = ['bot_sessions',
@@ -71,14 +78,20 @@ def check_db_and_recover():
 
             # روش 1: استفاده از ماژول بکاپ اگر در دسترس است
             if backup_module_available:
-                logger.info(
-                    "تلاش برای بازیابی با استفاده از ماژول پشتیبان‌گیری...")
-                if restore_backup():
-                    logger.info("بازیابی از بکاپ با موفقیت انجام شد")
-                    return
+                # بررسی وجود فایل بکاپ
+                backup_files = list(BACKUP_DIR.glob("instagrambot_backup_*.*"))
+                if backup_files:
+                    logger.info(
+                        "تلاش برای بازیابی با استفاده از فایل پشتیبان...")
+                    if restore_backup():
+                        logger.info("بازیابی از بکاپ با موفقیت انجام شد")
+                        return
+                    else:
+                        logger.warning(
+                            "بازیابی از بکاپ ناموفق بود. تلاش برای ساخت مجدد جداول...")
                 else:
                     logger.warning(
-                        "بازیابی از بکاپ ناموفق بود. تلاش برای ساخت مجدد جداول...")
+                        "هیچ فایل پشتیبانی یافت نشد. تلاش برای ساخت مجدد جداول...")
 
             # روش 2: بازسازی جداول
             try:
@@ -88,47 +101,22 @@ def check_db_and_recover():
 
                 # بعد از بازسازی، یک بکاپ بگیر
                 if backup_module_available:
-                    create_backup()
+                    try:
+                        backup_file = create_backup()
+                        if backup_file:
+                            logger.info(
+                                f"پشتیبان گیری بعد از بازسازی انجام شد: {backup_file}")
+                    except Exception as backup_error:
+                        logger.warning(
+                            f"خطا در پشتیبان‌گیری بعد از بازسازی: {str(backup_error)}")
 
             except Exception as rebuild_error:
                 logger.error(f"خطا در بازسازی جداول: {str(rebuild_error)}")
-
-                # در صورت شکست در بازسازی جداول، تلاش آخر
-                logger.warning("تلاش نهایی برای بازیابی...")
-                if backup_module_available:
-                    if restore_backup():
-                        logger.info("بازیابی نهایی از بکاپ با موفقیت انجام شد")
-                    else:
-                        logger.error("تمام تلاش‌ها برای بازیابی ناموفق بودند")
         else:
-            # اگر دیتابیس سالم است، می‌توانیم یک بکاپ بگیریم
-            if backup_module_available:
-                # هر 12 ساعت یک بکاپ بگیریم (به جای هر بار چک کردن)
-                backup_interval = 12 * 3600  # 12 ساعت
+            logger.info("دیتابیس سالم است")
 
-                # بررسی آخرین زمان پشتیبان‌گیری
-                backup_marker = Path(BACKUP_DIR / "last_backup_time.txt")
-                current_time = time.time()
-                should_backup = True
-
-                if backup_marker.exists():
-                    try:
-                        with open(backup_marker, 'r') as f:
-                            last_backup_time = float(f.read().strip())
-                        if current_time - last_backup_time < backup_interval:
-                            should_backup = False
-                    except Exception:
-                        pass
-
-                if should_backup:
-                    logger.info("شروع پشتیبان‌گیری دوره‌ای...")
-                    backup_path = create_backup()
-                    if backup_path:
-                        logger.info(
-                            f"پشتیبان‌گیری با موفقیت انجام شد: {backup_path}")
-                        # به‌روزرسانی زمان آخرین بکاپ
-                        with open(backup_marker, 'w') as f:
-                            f.write(str(current_time))
+            # یک بکاپ به صورت دوره‌ای بگیر (نه در هر بار چک)
+            # این کار را به db_backup.py واگذار می‌کنیم
 
     except Exception as e:
         logger.error(f"خطا در بررسی و بازیابی دیتابیس: {str(e)}")
