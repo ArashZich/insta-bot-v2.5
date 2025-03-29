@@ -1,11 +1,10 @@
-import asyncio
 import os
 import uvicorn
+import asyncio
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 from starlette.responses import FileResponse
-from sqlalchemy.orm import Session
 
 from app.models.database import create_tables, get_db
 from app.bot.scheduler import BotScheduler
@@ -67,95 +66,46 @@ async def read_root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup"""
-    global routes_module  # اضافه کردن این خط
+    global routes_module
 
-    retry_count = 0
-    max_retries = 10  # افزایش از 5 به 10
+    # ساده‌سازی شده - یک بار تلاش برای ایجاد جداول
+    try:
+        # Create database tables
+        create_tables()
+        logger.info("Database tables created successfully")
+    except Exception as db_error:
+        logger.error(f"Database initialization error: {str(db_error)}")
+        logger.warning("Continuing without database initialization")
 
-    while retry_count < max_retries:
+    # Initialize bot scheduler
+    try:
+        db = next(get_db())
+        bot_scheduler = BotScheduler(db)
+
+        # Make bot scheduler available to API routes
+        routes_module.bot_scheduler = bot_scheduler
+        logger.info("Bot scheduler initialized and assigned to routes")
+
+        # شروع خودکار بات
         try:
-            # اول اتصال دیتابیس را چک کنید
-            try:
-                # Create database tables
-                create_tables()
-                logger.info("Database tables created successfully")
-            except Exception as db_error:
-                logger.error(
-                    f"Database initialization error (attempt {retry_count+1}/{max_retries}): {str(db_error)}")
-                if retry_count < max_retries - 1:
-                    # افزایش زمان انتظار
-                    logger.info(f"Waiting 15 seconds before retry...")
-                    await asyncio.sleep(15)
-                    retry_count += 1
-                    continue
-                else:
-                    logger.warning(
-                        "Continuing without database initialization")
-
-            # تلاش مجدد برای ایجاد جداول
-            try:
-                from app.models.database import Base, engine
-                Base.metadata.create_all(bind=engine)
-                logger.info("Attempted to create tables again for redundancy")
-            except Exception as tables_error:
-                logger.warning(
-                    f"Secondary table creation attempt: {str(tables_error)}")
-
-            # Initialize bot scheduler
-            try:
-                db = next(get_db())
-                bot_scheduler = BotScheduler(db)
-
-                # Make bot scheduler available to API routes
-                routes_module.bot_scheduler = bot_scheduler
-                logger.info("Bot scheduler initialized and assigned to routes")
-
-                # اضافه کردن شروع خودکار بات - اجرای اتوماتیک
-                try:
-                    # کمی تأخیر برای اطمینان از آماده بودن دیتابیس
-                    await asyncio.sleep(10)
-                    logger.info("Starting bot automatically...")
-                    if bot_scheduler.initialize():  # اطمینان از مقداردهی اولیه
-                        bot_scheduler.start()
-                        logger.info("Bot scheduler started automatically")
-                    else:
-                        logger.error("Bot initialization failed")
-                except Exception as auto_start_error:
-                    logger.error(
-                        f"Error auto-starting bot: {str(auto_start_error)}")
-                    logger.info(
-                        "Bot scheduler initialized but not auto-started")
-
-            except Exception as e:
-                logger.error(f"Error initializing bot scheduler: {str(e)}")
-                # ایجاد یک نمونه خالی برای جلوگیری از خطای None
-                routes_module.bot_scheduler = BotScheduler(next(get_db()))
-                logger.info("Created empty bot scheduler as fallback")
-
-            break  # اگر به اینجا رسیدیم، از حلقه خارج شویم
-
-        except Exception as e:
-            logger.error(
-                f"Error during startup (attempt {retry_count+1}/{max_retries}): {str(e)}")
-            if retry_count < max_retries - 1:
-                # افزایش زمان انتظار
-                logger.info(f"Waiting 15 seconds before retry...")
-                await asyncio.sleep(15)
-                retry_count += 1
+            await asyncio.sleep(5)  # تاخیر کوتاه‌تر
+            logger.info("Starting bot automatically...")
+            if bot_scheduler.initialize():
+                bot_scheduler.start()
+                logger.info("Bot scheduler started automatically")
             else:
-                logger.critical(
-                    "Failed to initialize application after multiple attempts")
-                # ایجاد یک نمونه خالی برای جلوگیری از خطای None
-                try:
-                    routes_module.bot_scheduler = BotScheduler(next(get_db()))
-                    logger.info(
-                        "Created empty bot scheduler as fallback after failures")
-                except Exception as fallback_error:
-                    logger.critical(
-                        f"Even fallback creation failed: {str(fallback_error)}")
-                break
+                logger.error("Bot initialization failed")
+        except Exception as auto_start_error:
+            logger.error(f"Error auto-starting bot: {str(auto_start_error)}")
+    except Exception as e:
+        logger.error(f"Error initializing bot scheduler: {str(e)}")
+        try:
+            # ایجاد یک نمونه خالی برای جلوگیری از خطای None
+            routes_module.bot_scheduler = BotScheduler(next(get_db()))
+            logger.info("Created empty bot scheduler as fallback")
+        except Exception:
+            logger.critical("Failed to create even a fallback scheduler")
 
-    # اضافه کردن لاگ برای بررسی وضعیت نهایی
     logger.info(
         f"Startup completed. Bot scheduler initialized: {routes_module.bot_scheduler is not None}")
 
@@ -168,7 +118,6 @@ async def shutdown_event():
         if routes_module.bot_scheduler and routes_module.bot_scheduler.running:
             routes_module.bot_scheduler.stop()
             logger.info("Bot stopped on shutdown")
-
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}")
 
