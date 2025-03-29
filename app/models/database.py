@@ -11,6 +11,10 @@ from app.config import DATABASE_URL
 # Setup logger
 logger = logging.getLogger("database")
 
+# متغیرهای جهانی
+engine = None
+SessionLocal = None
+
 # ایجاد Engine با مدیریت خطای بهتر
 
 
@@ -235,6 +239,8 @@ def create_tables():
 
 # تابع برای بررسی سلامت دیتابیس
 def check_db_health():
+    global engine, SessionLocal
+
     try:
         # تست اتصال
         with engine.connect() as conn:
@@ -255,7 +261,6 @@ def check_db_health():
 
         # تلاش مجدد با ایجاد engine جدید
         try:
-            global engine, SessionLocal
             new_engine = get_database_engine()
             engine = new_engine
             SessionLocal = sessionmaker(
