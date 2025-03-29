@@ -9,6 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
 from app.models.database import check_db_health
+from app.models.db_sync import sync_databases
 from app.bot.client import InstagramClient
 from app.bot.actions import ActionManager
 from app.bot.monitor import bot_monitor
@@ -208,6 +209,15 @@ class BotScheduler:
                 replace_existing=True
             )
             logger.info("Follow back job scheduled to run every 4 hours")
+
+            self.scheduler.add_job(
+                sync_databases,
+                trigger=IntervalTrigger(minutes=30),  # همگام‌سازی هر 30 دقیقه
+                id='db_sync_job',
+                replace_existing=True
+            )
+            logger.info(
+                "Database synchronization job scheduled to run every 30 minutes")
 
             # ریست کردن وضعیت استراحت
             self.is_resting = False
@@ -1003,3 +1013,21 @@ class BotScheduler:
                     self.lock_acquired_time = None
                 except:
                     pass
+
+    def sync_databases_if_needed(self):
+        """همگام‌سازی دیتابیس‌ها در صورت نیاز"""
+        try:
+            # تنها هر چند ساعت یک بار اجرا می‌شود تا از سربار جلوگیری شود
+            current_time = datetime.now(timezone.utc)
+            if not hasattr(self, 'last_sync_time') or (current_time - self.last_sync_time).total_seconds() > 3600:  # هر ساعت
+                from app.models.db_sync import sync_databases
+                sync_result = sync_databases()
+                if sync_result:
+                    logger.info(
+                        "همگام‌سازی دوره‌ای دیتابیس‌ها با موفقیت انجام شد")
+                else:
+                    logger.warning(
+                        "همگام‌سازی دوره‌ای دیتابیس‌ها با مشکل مواجه شد")
+                self.last_sync_time = current_time
+        except Exception as e:
+            logger.error(f"خطا در همگام‌سازی دیتابیس‌ها: {str(e)}")

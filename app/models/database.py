@@ -1,3 +1,4 @@
+# app/models/database.py
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -8,195 +9,13 @@ import os
 import psycopg2
 
 from app.config import DATABASE_URL
+from app.models.dual_db_manager import db_manager
 
 # Setup logger
 logger = logging.getLogger("database")
 
-# Global variables at the module level
-engine = None
-SessionLocal = None
-
-# Check if using SQLite
-is_sqlite = DATABASE_URL.startswith('sqlite')
-
-# Create SQLAlchemy engine with database creation capability
-
-
-def get_engine():
-    max_retries = 20
-    retry_delay = 10  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            logger.info(
-                f"Attempting to connect to database (attempt {attempt+1}/{max_retries})")
-
-            # بررسی اینکه آیا URL مربوط به SQLite است یا PostgreSQL
-            is_sqlite = DATABASE_URL.startswith('sqlite')
-
-            # تنظیمات متفاوت برای SQLite و PostgreSQL
-            if is_sqlite:
-                engine = create_engine(
-                    DATABASE_URL,
-                    connect_args={'check_same_thread': False}
-                )
-            else:
-                engine = create_engine(
-                    DATABASE_URL,
-                    pool_pre_ping=True,
-                    pool_recycle=900,  # کاهش از 1800 به 900 ثانیه برای بازسازی سریع‌تر کانکشن‌ها
-                    pool_size=5,     # کاهش از 10 به 5 برای کاهش فشار بر دیتابیس
-                    max_overflow=10,  # کاهش از 20 به 10
-                    echo=False,
-                    # افزودن تایم‌اوت اتصال
-                    connect_args={'connect_timeout': 15}
-                )
-
-            # تست اتصال
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-
-            logger.info("Database connection successful")
-            return engine
-
-        except Exception as e:
-            logger.error(f"Database connection failed: {str(e)}")
-
-            # اگر خطا مربوط به عدم وجود دیتابیس است و SQLite نیست، تلاش می‌کنیم آن را ایجاد کنیم
-            if not is_sqlite and "database" in str(e).lower() and ("exist" in str(e).lower() or "does not exist" in str(e).lower()):
-                try:
-                    logger.info("Trying to create database...")
-
-                    # استخراج اطلاعات اتصال از رشته اتصال
-                    db_parts = DATABASE_URL.replace(
-                        "postgresql://", "").split("/")
-
-                    if len(db_parts) > 1:
-                        db_name = db_parts[1]
-                        user_host = db_parts[0].split("@")
-
-                        if len(user_host) > 1:
-                            user_pass = user_host[0].split(":")
-                            username = user_pass[0]
-                            password = user_pass[1] if len(
-                                user_pass) > 1 else ""
-
-                            host_port = user_host[1].split(":")
-                            host = host_port[0]
-                            port = host_port[1] if len(
-                                host_port) > 1 else "5432"
-                        else:
-                            # فرمت مختلف، احتمالاً اتصال بدون رمز عبور
-                            username = "postgres"
-                            password = ""
-                            host_parts = user_host[0].split(":")
-                            host = host_parts[0]
-                            port = host_parts[1] if len(
-                                host_parts) > 1 else "5432"
-                    else:
-                        # فرمت اشتباه، استفاده از مقادیر پیش‌فرض
-                        logger.warning(
-                            "Could not parse DATABASE_URL, using default values")
-                        db_name = "instagrambot"
-                        username = "postgres"
-                        password = "postgres"
-                        host = "postgres"
-                        port = "5432"
-
-                    # اتصال به PostgreSQL بدون مشخص کردن دیتابیس
-                    try:
-                        postgres_conn = psycopg2.connect(
-                            host=host,
-                            port=port,
-                            user=username,
-                            password=password,
-                            dbname="postgres",  # اتصال به دیتابیس پیش‌فرض
-                            connect_timeout=10
-                        )
-                        postgres_conn.autocommit = True  # برای اجرای دستور CREATE DATABASE
-                    except Exception as conn_error:
-                        logger.error(
-                            f"Error connecting to postgres database: {str(conn_error)}")
-                        # تلاش با کاربر postgres
-                        postgres_conn = psycopg2.connect(
-                            host=host,
-                            port=port,
-                            user="postgres",
-                            password="postgres",
-                            dbname="postgres",
-                            connect_timeout=10
-                        )
-                        postgres_conn.autocommit = True
-
-                    with postgres_conn.cursor() as cursor:
-                        # بررسی وجود دیتابیس قبل از ایجاد آن
-                        cursor.execute(
-                            f"SELECT 1 FROM pg_database WHERE datname = '{db_name}'")
-                        exists = cursor.fetchone()
-
-                        if not exists:
-                            cursor.execute(f"CREATE DATABASE {db_name}")
-                            logger.info(
-                                f"Successfully created database: {db_name}")
-
-                    postgres_conn.close()
-
-                    # کمی صبر می‌کنیم تا دیتابیس کاملاً ایجاد شود
-                    time.sleep(3)
-
-                    # حالا باید به دیتابیس جدید متصل شویم
-                    engine = create_engine(
-                        DATABASE_URL,
-                        pool_pre_ping=True,
-                        pool_recycle=900,
-                        pool_size=5,
-                        max_overflow=10
-                    )
-                    return engine
-
-                except Exception as create_error:
-                    logger.error(
-                        f"Error creating database: {str(create_error)}")
-
-            if attempt < max_retries - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-            else:
-                logger.error(
-                    "Maximum retry attempts reached. Could not connect to database.")
-
-                # در صورت تنظیم SQLITE_FALLBACK=true، از SQLite استفاده می‌کنیم
-                if os.getenv('SQLITE_FALLBACK', 'False').lower() == 'true':
-                    logger.warning("Falling back to SQLite database")
-                    fallback_engine = create_engine(
-                        'sqlite:///instagram_bot.db')
-                    return fallback_engine
-                raise
-
-
-# تلاش مداوم برای ایجاد و اتصال به دیتابیس
-engine = None
-for _ in range(5):  # پنج بار تلاش میکنیم
-    try:
-        engine = get_engine()
-        break  # اگر موفق بود از حلقه خارج میشویم
-    except Exception as e:
-        logger.error(f"Failed to get engine: {str(e)}")
-        time.sleep(10)  # کمی صبر میکنیم و دوباره تلاش میکنیم
-
-# اگر همچنان نتوانستیم موتور ایجاد کنیم، خطا میدهیم
-if engine is None:
-    logger.critical(
-        "FATAL ERROR: Could not create or connect to database after multiple attempts")
-    # به جای توقف برنامه، یک موتور SQLite موقت ایجاد می‌کنیم
-    logger.warning("Creating temporary SQLite engine as fallback")
-    engine = create_engine('sqlite:///instagram_bot.db',
-                           connect_args={'check_same_thread': False})
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Create base class for SQLAlchemy models
-Base = declarative_base()
+# استفاده از Base تعریف شده در dual_db_manager
+Base = db_manager.Base
 
 # Define models
 
@@ -208,8 +27,8 @@ class BotSession(Base):
     username = Column(String, unique=True, index=True)
     session_data = Column(Text)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=datetime.now(timezone.utc),
-                        onupdate=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(
+        timezone.utc), onupdate=datetime.now(timezone.utc))
     is_active = Column(Boolean, default=True)
 
 
@@ -254,117 +73,30 @@ class DailyStats(Base):
     followers_lost = Column(Integer, default=0)
 
 
-# Function to get DB session
+# Function to get DB session - استفاده از get_db موجود در dual_db_manager
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    except Exception as e:
-        logger.error(f"Session error: {str(e)}")
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return db_manager.get_db()
 
 
 # Function to create all database tables with retry logic
 def create_tables():
-    global engine
-    global SessionLocal
-
-    max_retries = 10
-    retry_delay = 5
-
-    for attempt in range(max_retries):
-        try:
-            logger.info(
-                f"Creating database tables (attempt {attempt+1}/{max_retries})...")
-            Base.metadata.create_all(bind=engine)
-            logger.info("Database tables created successfully")
-            return True
-        except Exception as e:
-            logger.error(f"Error creating database tables: {str(e)}")
-
-            if attempt < max_retries - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-
-                # تلاش مجدد برای ایجاد موتور در صورت نیاز
-                try:
-                    new_engine = get_engine()
-                    engine = new_engine
-                    SessionLocal = sessionmaker(
-                        autocommit=False, autoflush=False, bind=engine)
-                except Exception as engine_error:
-                    logger.error(
-                        f"Error recreating engine: {str(engine_error)}")
-            else:
-                logger.critical(
-                    "FATAL ERROR: Could not create database tables after multiple attempts")
-                return False
-
-    return False
-
-
-# Function to reset all database tables
-def reset_tables():
-    try:
-        logger.info("Resetting database tables...")
-        Base.metadata.drop_all(bind=engine)
-        result = create_tables()
-        if result:
-            logger.info("Database tables reset successfully")
-            return True
-        else:
-            logger.error("Failed to reset tables - could not recreate tables")
-            return False
-    except Exception as e:
-        logger.error(f"Error resetting database tables: {str(e)}")
-        return False
+    """ایجاد جداول در هر دو دیتابیس"""
+    return db_manager.create_tables()
 
 
 # Function to check database connection health and recreate if needed
 def check_db_health():
-    global engine
-    global SessionLocal
+    """بررسی سلامت اتصال‌های دیتابیس"""
+    pg_healthy, sqlite_healthy = db_manager.check_health()
 
-    try:
-        # Test connection
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-            logger.info("Database connection is healthy")
-            return True
-    except Exception as e:
-        logger.error(f"Database connection is unhealthy: {str(e)}")
-
-        # Try to recreate engine
-        try:
-            new_engine = get_engine()
-            engine = new_engine
-            SessionLocal = sessionmaker(
-                autocommit=False, autoflush=False, bind=engine)
-            logger.info("Database engine recreated successfully")
-            return True
-        except Exception as recreate_error:
-            logger.error(
-                f"Failed to recreate database engine: {str(recreate_error)}")
-
-            # در صورت خطا به SQLite فالبک می‌کنیم
-            if os.getenv('SQLITE_FALLBACK', 'False').lower() == 'true':
-                try:
-                    logger.warning(
-                        "Falling back to SQLite as database connection failed")
-                    sqlite_engine = create_engine(
-                        'sqlite:///instagram_bot.db', connect_args={'check_same_thread': False})
-                    engine = sqlite_engine
-                    SessionLocal = sessionmaker(
-                        autocommit=False, autoflush=False, bind=engine)
-                    # ایجاد جداول در SQLite
-                    Base.metadata.create_all(bind=engine)
-                    logger.info("Successfully switched to SQLite database")
-                    return True
-                except Exception as sqlite_error:
-                    logger.error(
-                        f"Even SQLite fallback failed: {str(sqlite_error)}")
-
-            return False
+    # اگر حداقل یکی از دیتابیس‌ها سالم باشد، مشکلی نیست
+    if pg_healthy or sqlite_healthy:
+        # اگر هر دو سالم باشند، می‌توانیم همگام‌سازی انجام دهیم
+        if pg_healthy and sqlite_healthy:
+            # TODO: بررسی نیاز به همگام‌سازی
+            pass
+        return True
+    else:
+        # هر دو دیتابیس ناسالم هستند - وضعیت بحرانی
+        logger.critical("هر دو دیتابیس PostgreSQL و SQLite ناسالم هستند!")
+        return False

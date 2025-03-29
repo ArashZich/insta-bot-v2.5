@@ -64,6 +64,8 @@ async def read_root():
     return FileResponse("app/static/index.html")
 
 
+# تغییرات لازم در فایل main.py
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup"""
@@ -76,33 +78,36 @@ async def startup_event():
         try:
             # اول اتصال دیتابیس را چک کنید
             try:
-                # Create database tables
-                create_tables()
-                logger.info("Database tables created successfully")
+                # ایجاد جداول دیتابیس با استفاده از dual_db_manager
+                from app.models.dual_db_manager import db_manager
+                db_manager.create_tables()
+                logger.info("جداول دیتابیس با موفقیت ایجاد شدند")
+
+                # همگام‌سازی دیتابیس‌ها در صورت نیاز
+                from app.models.db_sync import sync_databases
+                sync_result = sync_databases()
+                if sync_result:
+                    logger.info(
+                        "همگام‌سازی اولیه دیتابیس‌ها با موفقیت انجام شد")
+                else:
+                    logger.warning(
+                        "همگام‌سازی اولیه دیتابیس‌ها با مشکل مواجه شد")
+
             except Exception as db_error:
                 logger.error(
-                    f"Database initialization error (attempt {retry_count+1}/{max_retries}): {str(db_error)}")
+                    f"خطای راه‌اندازی دیتابیس (تلاش {retry_count+1}/{max_retries}): {str(db_error)}")
                 if retry_count < max_retries - 1:
                     # افزایش زمان انتظار
-                    logger.info(f"Waiting 15 seconds before retry...")
+                    logger.info(f"انتظار 15 ثانیه قبل از تلاش مجدد...")
                     await asyncio.sleep(15)
                     retry_count += 1
                     continue
                 else:
-                    logger.warning(
-                        "Continuing without database initialization")
-
-            # تلاش مجدد برای ایجاد جداول
-            try:
-                from app.models.database import Base, engine
-                Base.metadata.create_all(bind=engine)
-                logger.info("Attempted to create tables again for redundancy")
-            except Exception as tables_error:
-                logger.warning(
-                    f"Secondary table creation attempt: {str(tables_error)}")
+                    logger.warning("ادامه بدون راه‌اندازی کامل دیتابیس")
 
             # Initialize bot scheduler
             try:
+                from app.models.dual_db_manager import get_db
                 db = next(get_db())
                 bot_scheduler = BotScheduler(db)
 
@@ -147,6 +152,7 @@ async def startup_event():
                     "Failed to initialize application after multiple attempts")
                 # ایجاد یک نمونه خالی برای جلوگیری از خطای None
                 try:
+                    from app.models.dual_db_manager import get_db
                     routes_module.bot_scheduler = BotScheduler(next(get_db()))
                     logger.info(
                         "Created empty bot scheduler as fallback after failures")
