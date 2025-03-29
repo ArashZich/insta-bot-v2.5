@@ -1,6 +1,27 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:13-alpine
+    container_name: instagram_bot_db
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data  # مسیر جدید برای ذخیره داده‌ها
+    ports:
+      - "5432:5432"
+    networks:
+      - instagram-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+
   app:
     build: .
     container_name: instagram_bot
@@ -20,45 +41,15 @@ services:
         condition: service_healthy
     networks:
       - instagram-bot-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    # اجرای دو برنامه به طور همزمان
     command: >
-      bash -c "sleep 30 &&
-              python db_recovery.py & 
-              uvicorn app.main:app --host 0.0.0.0 --port 8000"
-
-  postgres:
-    image: postgres:13-alpine  # استفاده از نسخه alpine برای سبک‌تر بودن
-    container_name: instagram_bot_db
-    restart: always
-    environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - instagram-bot-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 10s
-    # تنظیمات بهینه‌سازی شده برای PostgreSQL
-    command: postgres -c shared_buffers=128MB -c max_connections=100 -c fsync=on -c synchronous_commit=on
+      bash -c "
+      echo 'منتظر آماده شدن دیتابیس...' &&
+      sleep 20 &&
+      python db_recovery.py &&
+      echo 'در حال شروع برنامه اصلی...' &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
 
 networks:
   instagram-bot-network:
     driver: bridge
-
-volumes:
-  postgres_data:
-    name: instagram_bot_postgres_data  # نام مشخص برای حجم
