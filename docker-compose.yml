@@ -8,7 +8,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
     volumes:
-      - postgres_data:/var/lib/postgresql/data  # استفاده از volume داکر
+      - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     networks:
@@ -41,18 +41,11 @@ services:
         condition: service_healthy
     networks:
       - instagram-bot-network
-    command: >
-      bash -c "
-      echo 'منتظر آماده شدن دیتابیس...' &&
-      sleep 20 &&
-      python db_recovery.py &&
-      echo 'در حال شروع برنامه اصلی...' &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000
-      "
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 networks:
   instagram-bot-network:
     driver: bridge
 
 volumes:
-  postgres_data:  # تعریف volume داکر
+  postgres_data:
