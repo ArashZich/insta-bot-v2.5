@@ -200,6 +200,15 @@ class BotScheduler:
                 replace_existing=True
             )
 
+            # اضافه کردن جاب ویژه برای فالو بک فالوئرهای جدید
+            self.scheduler.add_job(
+                self.perform_follow_back,
+                trigger=IntervalTrigger(hours=4),  # هر 4 ساعت چک کند
+                id='follow_back_job',
+                replace_existing=True
+            )
+            logger.info("Follow back job scheduled to run every 4 hours")
+
             # ریست کردن وضعیت استراحت
             self.is_resting = False
             self.rest_start_time = None
@@ -658,11 +667,12 @@ class BotScheduler:
     def perform_follow_activity(self):
         """Perform follow-related activities"""
         try:
-            # Choose a random follow action
+            # Choose a random follow action, now including follow_back_new_followers
             action = random.choice([
                 "follow_hashtag_users",
                 "follow_user_followers",
-                "follow_my_followers"
+                "follow_my_followers",
+                "follow_back_new_followers"  # اضافه کردن عملیات فالو بک
             ])
 
             if action == "follow_hashtag_users":
@@ -690,6 +700,13 @@ class BotScheduler:
                     max_users=2)
                 logger.info(
                     f"Followed {count} of my followers that I wasn't following back")
+
+            elif action == "follow_back_new_followers":
+                # اجرای عملیات فالو بک برای فالوئرهای جدید
+                count = self.actions.follow.follow_back_new_followers(
+                    max_users=5)  # اولویت بیشتر برای فالو بک با max_users بالاتر
+                logger.info(
+                    f"Followed back {count} new followers")
 
             # Add a delay before the next action
             delay = random_delay(self.min_delay, self.max_delay)
@@ -931,3 +948,58 @@ class BotScheduler:
                 self._handle_db_error("update_follower_stats", e)
             else:
                 logger.error(f"Error updating follower stats: {str(e)}")
+
+    def perform_follow_back(self):
+        """ویژه فالو بک کردن کاربرانی که اخیرا ما را فالو کرده‌اند"""
+        try:
+            # بررسی اینکه آیا قفل گرفته شده است
+            lock_acquired = self.lock.acquire(blocking=False)
+            if not lock_acquired:
+                logger.info(
+                    "Another activity is in progress, skipping follow back check")
+                return
+
+            # ذخیره زمان گرفتن قفل
+            self.lock_acquired_time = datetime.now(timezone.utc)
+            logger.info(
+                "Performing special follow back check for new followers")
+
+            try:
+                # بررسی اعتبار سشن و لاگین
+                if not self.client.logged_in:
+                    logger.info(
+                        "Not logged in, attempting to login before follow back")
+                    login_result = self.client.login()
+                    if not login_result:
+                        logger.error("Failed to login, skipping follow back")
+                        return
+
+                # اجرای عملیات فالو بک با اولویت بالاتر (max_users بیشتر)
+                count = self.actions.follow.follow_back_new_followers(
+                    max_users=10)
+                logger.info(
+                    f"Special follow back check: followed back {count} new followers")
+
+                # ثبت آخرین فعالیت موفق
+                if count > 0:
+                    self.last_successful_activity = datetime.now(timezone.utc)
+
+            except Exception as e:
+                logger.error(f"Error in follow back check: {str(e)}")
+
+            finally:
+                # آزاد کردن قفل
+                if self.lock.locked():
+                    self.lock.release()
+                    self.lock_acquired_time = None
+                    logger.info("Lock released after follow back check")
+
+        except Exception as e:
+            logger.error(f"Unexpected error in follow back job: {str(e)}")
+            # سعی در آزاد کردن قفل در صورت خطا
+            if hasattr(self, 'lock') and self.lock.locked():
+                try:
+                    self.lock.release()
+                    self.lock_acquired_time = None
+                except:
+                    pass

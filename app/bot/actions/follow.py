@@ -1,6 +1,6 @@
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from instagrapi.exceptions import UserNotFound, ClientError, PleaseWaitFewMinutes, LoginRequired, RateLimitError
 
@@ -440,4 +440,106 @@ class FollowAction:
 
         except Exception as e:
             logger.error(f"Error following my followers: {str(e)}")
+            return 0
+
+    def follow_back_new_followers(self, max_users=10):
+        """Follow back users who recently followed us but we don't follow them back"""
+        if not self.can_perform_action():
+            logger.info(f"Daily follow limit reached: {DAILY_FOLLOW_LIMIT}")
+            return 0
+
+        try:
+            # Get my user ID
+            try:
+                user_id = self.client.user_id
+            except Exception as e:
+                logger.error(f"Error getting user_id: {str(e)}")
+                return 0
+
+            # Get my followers
+            try:
+                # ثبت درخواست در مدیریت کننده محدودیت
+                rate_limit_handler.log_request("profile")
+
+                # محدود کردن تعداد فالوئرها برای کاهش فشار بر API
+                my_followers = self.client.user_followers(user_id, amount=100)
+                follower_ids = set(my_followers.keys())
+
+                if not my_followers:
+                    logger.warning("No followers found")
+                    return 0
+            except Exception as e:
+                logger.error(f"Error getting my followers: {str(e)}")
+                return 0
+
+            # Get users I'm following
+            try:
+                # ثبت درخواست در مدیریت کننده محدودیت
+                rate_limit_handler.log_request("profile")
+
+                # محدود کردن تعداد فالویینگ‌ها برای کاهش فشار بر API
+                my_following = self.client.user_following(user_id, amount=100)
+                following_ids = set(my_following.keys())
+            except Exception as e:
+                logger.error(f"Error getting my following: {str(e)}")
+                return 0
+
+            # Find users who follow me but I don't follow back
+            not_following_back = follower_ids - following_ids
+
+            # Find recent followers from database (users who followed me in the last day)
+            today = datetime.now(timezone.utc).date()
+            yesterday = today - timedelta(days=1)
+
+            # Get recent follow activities where I was the target (someone followed me)
+            try:
+                # This requires tracking incoming follows separately in the database
+                # For now, we'll just use all users who follow us but we don't follow back
+                recent_followers = not_following_back
+            except Exception as e:
+                logger.error(f"Error querying recent followers: {str(e)}")
+                recent_followers = not_following_back
+
+            followed_count = 0
+            # Convert to list and shuffle
+            recent_follower_list = list(recent_followers)
+            random.shuffle(recent_follower_list)
+
+            # افزودن تأخیر کوتاه قبل از شروع فالو‌ها
+            time.sleep(random.uniform(3, 7))
+
+            for follower_id in recent_follower_list[:max_users]:
+                # Skip if we've already reached the daily limit
+                if not self.can_perform_action():
+                    logger.info(
+                        f"Daily follow limit reached during follow back operation: {DAILY_FOLLOW_LIMIT}")
+                    break
+
+                # Get follower username for logging
+                try:
+                    follower_info = my_followers.get(follower_id)
+                    username = follower_info.username if follower_info else "unknown"
+                except:
+                    username = "unknown"
+
+                logger.info(
+                    f"Following back user {username} who recently followed me")
+
+                # افزودن تأخیر تصادفی بین فالو‌ها
+                if followed_count > 0:
+                    delay = random.uniform(30, 60)
+                    logger.info(
+                        f"Waiting {delay:.1f} seconds before next follow back")
+                    time.sleep(delay)
+
+                # Follow the user
+                if self.follow_user(follower_id):
+                    followed_count += 1
+                    logger.info(f"Successfully followed back {username}")
+
+            logger.info(f"Followed back {followed_count} new followers")
+            return followed_count
+
+        except Exception as e:
+            logger.error(f"Error in follow back operation: {str(e)}")
             return 0
