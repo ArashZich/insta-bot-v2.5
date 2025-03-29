@@ -7,12 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     libpq-dev \
-    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create necessary directories
-RUN mkdir -p /app/sessions /app/logs /app/data
+# Create sessions and logs directories
+RUN mkdir -p /app/sessions /app/logs
 
 # Copy requirements.txt and install Python dependencies
 COPY requirements.txt .
@@ -20,9 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . /app/
-
-# Fix permissions
-RUN chmod -R 777 /app/sessions /app/logs /app/data
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
