@@ -9,51 +9,99 @@ services:
       - .:/app
       - ./sessions:/app/sessions
       - ./logs:/app/logs
+      - ./backup:/app/backup
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
       - PYTHONPATH=/app
+      - TZ=Asia/Tehran
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - instagram-bot-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"] 
+      interval: 1m
+      timeout: 20s
       retries: 3
       start_period: 40s
-    # اجرای دو برنامه به طور همزمان
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    # اجرای همزمان سرویس بازیابی دیتابیس و برنامه اصلی
     command: >
-      bash -c "sleep 30 &&
-              python db_recovery.py & 
-              uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      bash -c "
+        python -m app.models.database && 
+        (python db_recovery.py & tail -f /dev/null & uvicorn app.main:app --host 0.0.0.0 --port 8000)"
 
   postgres:
-    image: postgres:13-alpine  # استفاده از نسخه alpine برای سبک‌تر بودن
+    image: postgres:14-alpine
     container_name: instagram_bot_db
     restart: always
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
+      - TZ=Asia/Tehran
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./pg_init:/docker-entrypoint-initdb.d
+      - ./backup:/backup
     ports:
       - "5432:5432"
     networks:
       - instagram-bot-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
+      interval: 30s
       timeout: 10s
-      retries: 10
-      start_period: 10s
+      retries: 3
+      start_period: 30s
     # تنظیمات بهینه‌سازی شده برای PostgreSQL
-    command: postgres -c shared_buffers=128MB -c max_connections=100 -c fsync=on -c synchronous_commit=on
+    command: >
+      postgres 
+      -c shared_buffers=256MB 
+      -c max_connections=100 
+      -c effective_cache_size=512MB 
+      -c work_mem=16MB 
+      -c maintenance_work_mem=64MB 
+      -c fsync=on 
+      -c synchronous_commit=on 
+      -c checkpoint_timeout=300 
+      -c full_page_writes=on 
+      -c wal_buffers=16MB 
+      -c random_page_cost=1.1
+
+  # افزودن سرویس جدید برای پشتیبان‌گیری منظم از دیتابیس
+  backup:
+    image: postgres:14-alpine
+    container_name: postgres_backup
+    restart: always
+    volumes:
+      - ./backup:/backup
+      - ./scripts:/scripts
+    environment:
+      - PGHOST=postgres
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASSWORD}
+      - PGDATABASE=${DB_NAME}
+      - TZ=Asia/Tehran
+    depends_on:
+      - postgres
+    networks:
+      - instagram-bot-network
+    entrypoint: >
+      bash -c "
+        mkdir -p /backup && 
+        echo '0 */12 * * * /scripts/backup.sh' > /var/spool/cron/crontabs/root && 
+        /scripts/backup.sh && 
+        crond -f -d 8"
 
 networks:
   instagram-bot-network:
@@ -61,4 +109,4 @@ networks:
 
 volumes:
   postgres_data:
-    name: instagram_bot_postgres_data  # نام مشخص برای حجم
+    name: instagram_bot_postgres_data

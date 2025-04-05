@@ -2,13 +2,16 @@ import logging
 import random
 import threading
 import time
+import traceback
+import json
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
+from apscheduler.jobstores.memory import MemoryJobStore
 
-from app.models.database import check_db_health
+from app.models.database import check_db_health, backup_database_data
 from app.bot.client import InstagramClient
 from app.bot.actions import ActionManager
 from app.bot.monitor import bot_monitor
@@ -54,15 +57,77 @@ class BotScheduler:
         self.error_reset_time = datetime.now(timezone.utc)
         # آخرین فعالیت موفق
         self.last_successful_activity = None
-        # استراتژی فعالیت‌ها
+        # زمان آخرین بررسی وضعیت نشست
+        self.last_session_check = datetime.now(timezone.utc)
+        # تعداد بررسی وضعیت نشست
+        self.session_check_counter = 0
+
+        # تنظیم دستی API در صورت لزوم
+        # تعداد خطاهای متوالی قبل از راه‌اندازی مجدد اجباری
+        self.max_consecutive_errors = 15
+        self.consecutive_errors = 0  # شمارنده خطاهای متوالی
+
+        # وضعیت سلامت
+        self.health_status = {
+            "db_connection": True,
+            "instagram_login": False,
+            "last_successful_activity": None,
+            "errors_since_restart": 0,
+            "last_error": None,
+            "last_session_check": None,
+            "session_check_result": None,
+            "restart_count": 0
+        }
+
+        # استراتژی فعالیت‌ها - استفاده از استراتژی هوشمندتر
+        self.dynamically_adjust_activity_weights()
+
+    def dynamically_adjust_activity_weights(self):
+        """تنظیم پویای وزن‌های فعالیت بر اساس شرایط"""
+        # مقادیر پایه
         self.activity_weights = {
             "follow": 1,
             "unfollow": 1,
-            "like": 3,  # احتمال بیشتر برای لایک چون کم خطرتر است
+            "like": 3,
             "comment": 1,
             "direct": 1,
-            "story_reaction": 2  # احتمال بیشتر برای واکنش به استوری
+            "story_reaction": 2
         }
+
+        # تنظیم بر اساس ساعت روز (به وقت ایران)
+        current_hour = (datetime.now(timezone.utc).hour + 3.5) % 24
+
+        # ساعات شلوغ (10 صبح تا 11 شب به وقت ایران)
+        if 10 <= current_hour <= 23:
+            # کاهش فعالیت‌های حساس در ساعات شلوغ
+            self.activity_weights["follow"] *= 0.8
+            self.activity_weights["unfollow"] *= 0.8
+            self.activity_weights["comment"] *= 0.8
+            self.activity_weights["direct"] *= 0.7
+
+            # افزایش فعالیت‌های کم‌خطرتر
+            self.activity_weights["like"] *= 1.3
+            self.activity_weights["story_reaction"] *= 1.2
+        else:
+            # ساعات خلوت‌تر - وزن بیشتر به فعالیت‌های حساس‌تر
+            self.activity_weights["follow"] *= 1.2
+            self.activity_weights["unfollow"] *= 1.1
+            self.activity_weights["comment"] *= 1.0
+            self.activity_weights["direct"] *= 0.9
+
+        # تنظیم بر اساس شمارنده خطا
+        if self.error_count > 0:
+            error_factor = min(self.error_count * 0.2, 0.8)  # حداکثر 80% کاهش
+
+            # کاهش وزن همه فعالیت‌ها به جز لایک
+            for activity in ["follow", "unfollow", "comment", "direct"]:
+                self.activity_weights[activity] *= (1 - error_factor)
+
+            # افزایش وزن فعالیت‌های کم‌خطر
+            self.activity_weights["like"] *= (1 + error_factor * 0.5)
+            self.activity_weights["story_reaction"] *= (1 + error_factor * 0.3)
+
+        logger.info(f"Adjusted activity weights: {self.activity_weights}")
 
     def _handle_db_error(self, operation, e):
         """Handle database errors gracefully"""
@@ -71,40 +136,87 @@ class BotScheduler:
         try:
             self.db.rollback()
             logger.info("Rolled back database transaction")
+            # ثبت در وضعیت سلامت
+            self.health_status["db_connection"] = False
+            self.health_status["last_error"] = f"DB error: {str(e)}"
         except Exception as rollback_error:
             logger.error(f"Error during rollback: {str(rollback_error)}")
 
     def initialize(self):
-        """Initialize the bot by loading session or logging in"""
+        """Initialize the bot by loading session or logging in with improved error handling"""
         try:
+            # ثبت تلاش راه‌اندازی
+            self.health_status["restart_count"] += 1
+
             # ابتدا سعی در بارگذاری نشست موجود
             if self.client.load_session():
                 logger.info("Successfully loaded existing session")
                 self.actions = ActionManager(self.client.get_client(), self.db)
-                return True
 
-            # اگر نشست موجود نبود، تلاش برای ورود جدید
+                # بررسی اعتبار نشست
+                if self.verify_session_health():
+                    self.health_status["instagram_login"] = True
+                    return True
+                else:
+                    logger.warning(
+                        "Session loaded but verification failed, attempting to login")
+
+            # اگر نشست موجود نبود یا معتبر نبود، تلاش برای ورود جدید
             if self.client.login():
                 self.actions = ActionManager(self.client.get_client(), self.db)
                 logger.info("Bot initialized successfully with new login")
+                self.health_status["instagram_login"] = True
                 return True
             else:
                 logger.error("Failed to initialize bot - login failed")
+                self.health_status["instagram_login"] = False
                 return False
         except Exception as e:
             if "database" in str(e).lower() or "sql" in str(e).lower() or "operational" in str(e).lower():
                 self._handle_db_error("initialize", e)
             else:
                 logger.error(f"Error initializing bot: {str(e)}")
+                logger.error(traceback.format_exc())
+
+            self.health_status["instagram_login"] = False
+            self.health_status["last_error"] = f"Init error: {str(e)}"
+            return False
+
+    def verify_session_health(self):
+        """بررسی سلامت و اعتبار نشست اینستاگرام"""
+        try:
+            now = datetime.now(timezone.utc)
+            self.last_session_check = now
+            self.session_check_counter += 1
+            self.health_status["last_session_check"] = now.isoformat()
+
+            # بررسی وضعیت نشست با client
+            result = self.client.verify_session()
+
+            if result:
+                logger.info("Session verification passed")
+                self.health_status["session_check_result"] = "pass"
+                return True
+            else:
+                logger.warning("Session verification failed")
+                self.health_status["session_check_result"] = "fail"
+                return False
+
+        except Exception as e:
+            logger.error(f"Error during session verification: {str(e)}")
+            self.health_status["session_check_result"] = f"error: {str(e)}"
             return False
 
     def job_error_listener(self, event):
-        """Handler for job execution errors"""
+        """Handler for job execution errors with improved error tracking"""
         logger.error(f"Job execution error: {event.exception}")
         logger.error(f"Traceback: {event.traceback}")
 
         # افزایش شمارنده خطاها
         self.error_count += 1
+        self.consecutive_errors += 1
+        self.health_status["errors_since_restart"] += 1
+        self.health_status["last_error"] = str(event.exception)
 
         # ریست شمارنده خطاها هر 6 ساعت
         if (datetime.now(timezone.utc) - self.error_reset_time).total_seconds() > 21600:  # 6 ساعت
@@ -112,14 +224,44 @@ class BotScheduler:
             self.error_reset_time = datetime.now(timezone.utc)
             logger.info("Error count reset after 6 hours")
 
+        # اگر تعداد خطاهای متوالی از حد مجاز بیشتر شد، درخواست راه‌اندازی مجدد می‌دهیم
+        if self.consecutive_errors >= self.max_consecutive_errors:
+            logger.critical(
+                f"Detected {self.consecutive_errors} consecutive errors - requesting forced restart")
+
+            # ذخیره وضعیت برای بررسی‌های آینده
+            try:
+                error_state = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "consecutive_errors": self.consecutive_errors,
+                    "last_error": str(event.exception),
+                    "health_status": self.health_status
+                }
+
+                with open("/app/logs/critical_errors.json", "w") as f:
+                    json.dump(error_state, f, indent=2)
+            except Exception as save_error:
+                logger.error(f"Could not save error state: {str(save_error)}")
+
+            # راه‌اندازی مجدد اجباری
+            self.restart()
+
+            # ریست شمارنده خطاهای متوالی
+            self.consecutive_errors = 0
+
         # ثبت خطا در مانیتور
         if 'bot_monitor' in globals():
             bot_monitor.record_error(f"Job error: {str(event.exception)}")
 
-    def job_executed_listener(self, event):
+    def job_success_listener(self, event):
         """Handler for successful job execution"""
         # تنظیم زمان آخرین فعالیت موفق
         self.last_successful_activity = datetime.now(timezone.utc)
+        self.health_status["last_successful_activity"] = self.last_successful_activity.isoformat(
+        )
+
+        # ریست شمارنده خطاهای متوالی
+        self.consecutive_errors = 0
 
         # کاهش شمارنده خطاها در صورت موفقیت
         if self.error_count > 0:
@@ -127,8 +269,17 @@ class BotScheduler:
             if self.error_count < 0:
                 self.error_count = 0
 
+    def job_missed_listener(self, event):
+        """Handler for missed job executions"""
+        logger.warning(f"Job missed execution: {event.job_id}")
+
+        # اگر چندین job از دست رفته باشد، ممکن است سیستم دچار مشکل شده باشد
+        if event.job_id == 'activity_job':
+            # فقط برای job اصلی فعالیت به شمارنده اضافه می‌کنیم
+            self.consecutive_errors += 0.5  # نیم خطا برای هر job از دست رفته
+
     def start(self):
-        """Start the bot scheduler"""
+        """Start the bot scheduler with improved error handling"""
         try:
             if not self.initialize():
                 return False
@@ -143,8 +294,19 @@ class BotScheduler:
                     logger.error(
                         f"Error shutting down existing scheduler: {str(shutdown_error)}")
 
-            # ایجاد scheduler جدید
-            self.scheduler = BackgroundScheduler()
+            # ایجاد scheduler جدید با تنظیمات پیشرفته‌تر
+            job_stores = {
+                'default': MemoryJobStore()
+            }
+
+            self.scheduler = BackgroundScheduler(
+                jobstores=job_stores,
+                job_defaults={
+                    'coalesce': True,  # ادغام اجراهای از دست رفته
+                    'max_instances': 1,  # فقط یک نمونه از هر job
+                    'misfire_grace_time': 60  # اجازه 60 ثانیه تاخیر در اجرا
+                }
+            )
 
             # اضافه کردن listener برای خطاهای اجرای job
             self.scheduler.add_listener(
@@ -152,10 +314,14 @@ class BotScheduler:
 
             # اضافه کردن listener برای اجرای موفق job
             self.scheduler.add_listener(
-                self.job_executed_listener, EVENT_JOB_EXECUTED)
+                self.job_success_listener, EVENT_JOB_EXECUTED)
 
-            # تنظیم فاصله زمانی تصادفی‌تر بین فعالیت‌ها (15-35 دقیقه)
-            interval_minutes = random.randint(15, 35)
+            # اضافه کردن listener برای جاب‌های از دست رفته
+            self.scheduler.add_listener(
+                self.job_missed_listener, EVENT_JOB_MISSED)
+
+            # تنظیم فاصله زمانی تصادفی‌تر بین فعالیت‌ها (15-40 دقیقه)
+            interval_minutes = random.randint(15, 40)
 
             # Schedule the main activity task
             self.scheduler.add_job(
@@ -168,10 +334,10 @@ class BotScheduler:
             logger.info(
                 f"Main activity job scheduled to run every {interval_minutes} minutes")
 
-            # Schedule daily follower count update
+            # Schedule follower count update more frequently (every 4 hours)
             self.scheduler.add_job(
                 self.update_follower_stats,
-                trigger=IntervalTrigger(hours=6),  # Update 4 times per day
+                trigger=IntervalTrigger(hours=4),
                 id='follower_stats_job',
                 replace_existing=True
             )
@@ -184,7 +350,7 @@ class BotScheduler:
                 replace_existing=True
             )
 
-            # اضافه کردن بررسی سلامت دیتابیس
+            # اضافه کردن بررسی سلامت دیتابیس به صورت مکرر
             self.scheduler.add_job(
                 check_db_health,
                 trigger=IntervalTrigger(minutes=10),  # بررسی هر 10 دقیقه
@@ -195,8 +361,17 @@ class BotScheduler:
             # اضافه کردن بررسی وضعیت لاگین و سلامت سشن
             self.scheduler.add_job(
                 self.check_login_health,
-                trigger=IntervalTrigger(hours=4),  # بررسی هر 4 ساعت
+                trigger=IntervalTrigger(hours=2),  # بررسی هر 2 ساعت
                 id='login_health_check_job',
+                replace_existing=True
+            )
+
+            # اضافه کردن بررسی کلی و تنظیم وزن‌های فعالیت‌ها
+            self.scheduler.add_job(
+                self.dynamically_adjust_activity_weights,
+                # هر ساعت وزن‌ها را تنظیم می‌کنیم
+                trigger=IntervalTrigger(hours=1),
+                id='adjust_weights_job',
                 replace_existing=True
             )
 
@@ -209,6 +384,7 @@ class BotScheduler:
             self.error_count = 0
             self.error_reset_time = datetime.now(timezone.utc)
             self.last_successful_activity = datetime.now(timezone.utc)
+            self.consecutive_errors = 0
 
             self.scheduler.start()
             self.running = True
@@ -232,6 +408,7 @@ class BotScheduler:
                 self._handle_db_error("start", e)
             else:
                 logger.error(f"Error starting scheduler: {str(e)}")
+                logger.error(traceback.format_exc())
             return False
 
     def stop(self):
@@ -280,6 +457,12 @@ class BotScheduler:
             if result:
                 self.restart_attempts = 0  # ریست کردن شمارنده در صورت موفقیت
                 logger.info("Bot successfully restarted")
+                # ریست شمارشگر خطاها
+                self.error_count = 0
+                self.consecutive_errors = 0
+                # بروزرسانی وضعیت سلامت
+                self.health_status["errors_since_restart"] = 0
+                self.health_status["last_error"] = None
             else:
                 logger.error("Failed to restart bot")
 
@@ -287,6 +470,7 @@ class BotScheduler:
 
         except Exception as e:
             logger.error(f"Error during bot restart: {str(e)}")
+            logger.error(traceback.format_exc())
             return False
 
     def check_login_health(self):
@@ -309,10 +493,25 @@ class BotScheduler:
             # حتی اگر ظاهراً لاگین هستیم، یک عملیات ساده انجام دهیم تا مطمئن شویم
             try:
                 # یک عملیات ساده که به احتمال زیاد با محدودیت‌های اینستاگرام برخورد نمی‌کند
-                # تغییر به استفاده از تابعی که پارامتر amount نداره
-                _ = self.client.get_client().get_timeline_feed()
-                logger.info("Login session is healthy")
-                return True
+                # تست اعتبار نشست با استفاده از متد verify_session
+                session_valid = self.verify_session_health()
+
+                if session_valid:
+                    logger.info("Login session is healthy")
+                    return True
+                else:
+                    # در صورت خطا، دوباره لاگین کنیم
+                    logger.warning(
+                        "Session check failed. Attempting to login again...")
+                    login_result = self.client.login(force=True)
+                    if login_result:
+                        logger.info(
+                            "Successfully refreshed login session after check")
+                        return True
+                    else:
+                        logger.error(
+                            "Failed to refresh login session after check")
+                        return False
             except Exception as check_error:
                 logger.warning(f"Error checking session: {str(check_error)}")
 
@@ -539,20 +738,16 @@ class BotScheduler:
                     logger.info("Lock released before rest")
                 return
 
+            # تنظیم مجدد وزن‌های فعالیت برای این اجرا
+            self.dynamically_adjust_activity_weights()
+
             # انتخاب فعالیت با وزن‌های هوشمند
-            # استفاده از وزن‌های تعریف شده در کلاس
             activities = []
             weights = []
 
             for act, weight in self.activity_weights.items():
-                # کاهش وزن فعالیت‌های پرخطر در صورت وجود خطاهای اخیر
-                adjusted_weight = weight
-                if self.error_count > 2:
-                    if act in ["follow", "unfollow", "comment", "direct"]:
-                        adjusted_weight = weight * 0.5  # کاهش 50% برای فعالیت‌های پرخطر
-
                 activities.append(act)
-                weights.append(adjusted_weight)
+                weights.append(weight)
 
             # انتخاب فعالیت با توجه به وزن‌ها
             activity = random.choices(activities, weights=weights, k=1)[0]
@@ -560,7 +755,7 @@ class BotScheduler:
             logger.info(f"Performing activity: {activity}")
             # اضافه کردن تخمین زمان پایان فعالیت
             estimated_completion_time = datetime.now(
-                timezone.utc) + timedelta(minutes=1)  # تخمین حدودی
+                timezone.utc) + timedelta(minutes=3)  # تخمین بهتر
             logger.info(
                 f"Estimated completion time: {estimated_completion_time.strftime('%H:%M:%S')}"
             )
@@ -581,12 +776,17 @@ class BotScheduler:
 
             # فعالیت موفق - ثبت زمان
             self.last_successful_activity = datetime.now(timezone.utc)
+            self.health_status["last_successful_activity"] = self.last_successful_activity.isoformat(
+            )
 
             # کاهش شمارنده خطا در صورت موفقیت
             if self.error_count > 0:
                 self.error_count -= 0.5
                 if self.error_count < 0:
                     self.error_count = 0
+
+            # ریست شمارنده خطاهای متوالی
+            self.consecutive_errors = 0
 
             # محاسبه و لاگ زمان فعالیت بعدی - فاصله متغیر بین فعالیت‌ها بر اساس شرایط
             if self.error_count > 3:
@@ -607,6 +807,13 @@ class BotScheduler:
                 self._handle_db_error("perform_activity", e)
             else:
                 logger.error(f"Error performing activity: {str(e)}")
+                logger.error(traceback.format_exc())
+
+                # افزایش شمارنده خطاها
+                self.error_count += 1
+                self.consecutive_errors += 1
+                self.health_status["errors_since_restart"] += 1
+                self.health_status["last_error"] = f"Activity error: {str(e)}"
 
                 # افزودن ثبت خطا در مانیتور
                 rate_limit_indicators = [
@@ -644,7 +851,7 @@ class BotScheduler:
                     logger.info(
                         "Session expired. Attempting to login again after delay...")
                     time.sleep(300)  # 5 دقیقه تاخیر قبل از تلاش مجدد
-                    self.client.login()
+                    self.client.login(force=True)
         finally:
             # آزاد کردن قفل در انتها با بررسی امن
             try:
@@ -701,10 +908,12 @@ class BotScheduler:
                 self._handle_db_error("follow_activity", e)
             else:
                 logger.error(f"Error in follow activity: {str(e)}")
+                logger.error(traceback.format_exc())
                 # ثبت خطا در مانیتور
                 if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
-                    bot_monitor.record_error(
-                        f"Follow activity error: {str(e)}")
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(
+                            f"Follow activity error: {str(e)}")
 
     def perform_unfollow_activity(self):
         """Perform unfollow-related activities"""
@@ -745,10 +954,12 @@ class BotScheduler:
                 self._handle_db_error("unfollow_activity", e)
             else:
                 logger.error(f"Error in unfollow activity: {str(e)}")
+                logger.error(traceback.format_exc())
                 # ثبت خطا در مانیتور
                 if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
-                    bot_monitor.record_error(
-                        f"Unfollow activity error: {str(e)}")
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(
+                            f"Unfollow activity error: {str(e)}")
 
     def perform_like_activity(self):
         """Perform like-related activities"""
@@ -799,9 +1010,12 @@ class BotScheduler:
                 self._handle_db_error("like_activity", e)
             else:
                 logger.error(f"Error in like activity: {str(e)}")
+                logger.error(traceback.format_exc())
                 # ثبت خطا در مانیتور
                 if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
-                    bot_monitor.record_error(f"Like activity error: {str(e)}")
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(
+                            f"Like activity error: {str(e)}")
 
     def perform_comment_activity(self):
         """Perform comment-related activities"""
@@ -843,10 +1057,12 @@ class BotScheduler:
                 self._handle_db_error("comment_activity", e)
             else:
                 logger.error(f"Error in comment activity: {str(e)}")
+                logger.error(traceback.format_exc())
                 # ثبت خطا در مانیتور
                 if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
-                    bot_monitor.record_error(
-                        f"Comment activity error: {str(e)}")
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(
+                            f"Comment activity error: {str(e)}")
 
     def perform_direct_activity(self):
         """Perform direct message-related activities"""
@@ -883,10 +1099,12 @@ class BotScheduler:
                 self._handle_db_error("direct_activity", e)
             else:
                 logger.error(f"Error in direct message activity: {str(e)}")
+                logger.error(traceback.format_exc())
                 # ثبت خطا در مانیتور
                 if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
-                    bot_monitor.record_error(
-                        f"Direct message activity error: {str(e)}")
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(
+                            f"Direct message activity error: {str(e)}")
 
     def perform_story_reaction_activity(self):
         """Perform story reaction-related activities"""
@@ -917,10 +1135,12 @@ class BotScheduler:
                 self._handle_db_error("story_reaction_activity", e)
             else:
                 logger.error(f"Error in story reaction activity: {str(e)}")
+                logger.error(traceback.format_exc())
                 # ثبت خطا در مانیتور
                 if any(error_text in str(e).lower() for error_text in ["login_required", "please wait", "rate limit"]):
-                    bot_monitor.record_error(
-                        f"Story reaction activity error: {str(e)}")
+                    if 'bot_monitor' in globals():
+                        bot_monitor.record_error(
+                            f"Story reaction activity error: {str(e)}")
 
     def update_follower_stats(self):
         """Update follower statistics in the database"""
@@ -931,3 +1151,4 @@ class BotScheduler:
                 self._handle_db_error("update_follower_stats", e)
             else:
                 logger.error(f"Error updating follower stats: {str(e)}")
+                logger.error(traceback.format_exc())
