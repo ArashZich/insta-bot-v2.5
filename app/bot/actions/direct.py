@@ -24,8 +24,12 @@ class DirectAction:
     def get_daily_direct_count(self):
         """Get the number of direct messages for today"""
         try:
+            # ایجاد یک اتصال محلی برای این تابع
+            from app.models.database import get_db
+            local_db = next(get_db())
+
             today = datetime.now(timezone.utc).date()
-            stats = self.db.query(DailyStats).filter(
+            stats = local_db.query(DailyStats).filter(
                 DailyStats.date >= today
             ).first()
 
@@ -36,6 +40,10 @@ class DirectAction:
             logger.error(f"Error getting daily direct count: {str(e)}")
             # در صورت خطا، مقدار محافظه‌کارانه برگردانیم
             return DAILY_DIRECT_LIMIT - 1
+        finally:
+            # بستن اتصال محلی
+            if 'local_db' in locals():
+                local_db.close()
 
     def can_perform_action(self):
         """Check if we can perform a direct message action today"""

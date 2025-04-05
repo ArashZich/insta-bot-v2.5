@@ -52,6 +52,13 @@ class InstagramClient:
             # تلاش برای ورود مجدد
             return self.login(force=True)
 
+        if isinstance(exception, KeyError) and "'data'" in str(exception):
+            logger.warning(
+                "Instagram API returned unexpected response without 'data' field")
+            # تأخیر قبل از تلاش مجدد
+            time.sleep(random.randint(60, 180))
+            return False
+
         # برگرداندن خطا به هندلر پیش‌فرض در موارد دیگر
         return False
 
