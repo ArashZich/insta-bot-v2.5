@@ -79,9 +79,11 @@ services:
     # اجرای اسکریپت پشتیبان‌گیری ساده با cron
     command: >
       bash -c "
-        echo '0 */12 * * * pg_dump -h postgres -U ${DB_USER:-postgres} ${DB_NAME:-instagrambot} -f /backup/instagram_bot_`date +\%Y\%m\%d_\%H\%M\%S`.sql && echo \"Backup completed at `date`\" > /backup/last_backup.log' > /var/spool/cron/crontabs/root &&
+        echo '0 */12 * * * pg_dump -h postgres -U ${PGUSER} ${PGDATABASE} -f /backup/instagram_bot_`date +\%Y\%m\%d_\%H\%M\%S`.sql && echo \"Backup completed at `date`\" > /backup/last_backup.log' > /var/spool/cron/crontabs/postgres &&
         echo 'Database backup service running...' &&
         crond -f -d 8"
+    user: postgres
+
 
 networks:
   instagram-bot-network:

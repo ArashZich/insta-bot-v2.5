@@ -36,21 +36,24 @@ def get_engine():
                 f"Attempting to connect to database (attempt {attempt+1}/{max_retries})")
 
             # اول تلاش می‌کنیم مستقیماً به دیتابیس مشخص شده متصل شویم
-            engine = create_engine(
-                DATABASE_URL,
-                pool_pre_ping=True,  # بررسی اتصال قبل از هر استفاده
-                pool_recycle=600,    # بازیابی اتصال‌ها هر 10 دقیقه
-                pool_size=5,         # کاهش از 10 به 5 برای کاهش فشار بر دیتابیس
-                max_overflow=10,     # کاهش از 20 به 10
-                echo=False,
-                connect_args={
-                    'connect_timeout': 30,  # افزایش تایم‌اوت اتصال
-                    'keepalives': 1,        # فعال کردن keepalives برای جلوگیری از قطع شدن اتصال
-                    'keepalives_idle': 30,  # ارسال بسته keepalive بعد از 30 ثانیه بدون فعالیت
-                    'keepalives_interval': 10,  # فاصله بین بسته‌های keepalive
-                    'keepalives_count': 5    # تعداد تلاش‌های مجدد برای keepalive
-                }
-            )
+            if DATABASE_URL.startswith('postgresql'):
+                # این پارامترها فقط برای PostgreSQL استفاده می‌شوند
+                engine = create_engine(
+                    DATABASE_URL,
+                    pool_pre_ping=True,
+                    pool_recycle=900,
+                    pool_size=5,
+                    max_overflow=10,
+                    echo=False,
+                    connect_args={'connect_timeout': 15}
+                )
+            else:
+                # برای SQLite و غیره بدون پارامترهای پول
+                engine = create_engine(
+                    DATABASE_URL,
+                    pool_pre_ping=True,
+                    echo=False
+                )
 
             # تست اتصال
             with engine.connect() as conn:
