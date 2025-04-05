@@ -36,6 +36,7 @@ def check_postgres_connection():
         # استفاده از متغیرهای محیطی برای دسترسی به اطلاعات اتصال
         db_host = os.environ.get('DB_HOST', 'postgres')
         db_port = os.environ.get('DB_PORT', '5432')
+        # اطمینان از استفاده از postgres به جای root
         db_user = os.environ.get('DB_USER', 'postgres')
         db_password = os.environ.get('DB_PASSWORD', 'postgres')
         db_name = os.environ.get('DB_NAME', 'instagrambot')
@@ -44,7 +45,7 @@ def check_postgres_connection():
         conn = psycopg2.connect(
             host=db_host,
             port=db_port,
-            user=db_user,
+            user=db_user,  # استفاده از کاربر درست
             password=db_password,
             dbname=db_name,
             connect_timeout=10
