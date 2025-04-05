@@ -18,89 +18,69 @@ services:
       - PYTHONPATH=/app
       - TZ=Asia/Tehran
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     networks:
       - instagram-bot-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"] 
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 1m
-      timeout: 20s
+      timeout: 10s
       retries: 3
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 512M
-    # اجرای همزمان سرویس بازیابی دیتابیس و برنامه اصلی
+    # اجرای برنامه اصلی با تاخیر برای اطمینان از آماده بودن دیتابیس
     command: >
       bash -c "
+        sleep 15 &&
         python -m app.models.database && 
-        (python db_recovery.py & tail -f /dev/null & uvicorn app.main:app --host 0.0.0.0 --port 8000)"
+        python db_recovery.py & 
+        uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   postgres:
     image: postgres:14-alpine
     container_name: instagram_bot_db
     restart: always
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DB_NAME:-instagrambot}
       - TZ=Asia/Tehran
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./pg_init:/docker-entrypoint-initdb.d
       - ./backup:/backup
     ports:
       - "5432:5432"
     networks:
       - instagram-bot-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    # تنظیمات بهینه‌سازی شده برای PostgreSQL
-    command: >
-      postgres 
-      -c shared_buffers=256MB 
-      -c max_connections=100 
-      -c effective_cache_size=512MB 
-      -c work_mem=16MB 
-      -c maintenance_work_mem=64MB 
-      -c fsync=on 
-      -c synchronous_commit=on 
-      -c checkpoint_timeout=300 
-      -c full_page_writes=on 
-      -c wal_buffers=16MB 
-      -c random_page_cost=1.1
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # تنظیمات بهینه‌سازی شده ساده‌تر برای PostgreSQL
+    command: postgres -c shared_buffers=128MB -c max_connections=50
 
-  # افزودن سرویس جدید برای پشتیبان‌گیری منظم از دیتابیس
+  # سرویس ساده‌تر برای پشتیبان‌گیری
   backup:
     image: postgres:14-alpine
     container_name: postgres_backup
     restart: always
     volumes:
       - ./backup:/backup
-      - ./scripts:/scripts
     environment:
       - PGHOST=postgres
-      - PGUSER=${DB_USER}
-      - PGPASSWORD=${DB_PASSWORD}
-      - PGDATABASE=${DB_NAME}
+      - PGUSER=${DB_USER:-postgres}
+      - PGPASSWORD=${DB_PASSWORD:-postgres}
+      - PGDATABASE=${DB_NAME:-instagrambot}
       - TZ=Asia/Tehran
     depends_on:
       - postgres
     networks:
       - instagram-bot-network
-    entrypoint: >
+    # اجرای اسکریپت پشتیبان‌گیری ساده با cron
+    command: >
       bash -c "
-        mkdir -p /backup && 
-        echo '0 */12 * * * /scripts/backup.sh' > /var/spool/cron/crontabs/root && 
-        /scripts/backup.sh && 
+        echo '0 */12 * * * pg_dump -h postgres -U ${DB_USER:-postgres} ${DB_NAME:-instagrambot} -f /backup/instagram_bot_`date +\%Y\%m\%d_\%H\%M\%S`.sql && echo \"Backup completed at `date`\" > /backup/last_backup.log' > /var/spool/cron/crontabs/root &&
+        echo 'Database backup service running...' &&
         crond -f -d 8"
 
 networks:
