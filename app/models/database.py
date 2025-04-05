@@ -37,7 +37,7 @@ def get_engine():
 
             # اول تلاش می‌کنیم مستقیماً به دیتابیس مشخص شده متصل شویم
             if DATABASE_URL.startswith('postgresql'):
-                # این پارامترها فقط برای PostgreSQL استفاده می‌شوند
+                # پارامترهای مخصوص PostgreSQL
                 engine = create_engine(
                     DATABASE_URL,
                     pool_pre_ping=True,
@@ -48,7 +48,7 @@ def get_engine():
                     connect_args={'connect_timeout': 15}
                 )
             else:
-                # برای SQLite و غیره بدون پارامترهای پول
+                # برای SQLite و دیگر دیتابیس‌ها
                 engine = create_engine(
                     DATABASE_URL,
                     pool_pre_ping=True,
@@ -64,8 +64,6 @@ def get_engine():
 
         except Exception as e:
             logger.error(f"Database connection failed: {str(e)}")
-            # اضافه کردن stack trace کامل برای اشکال‌زدایی بهتر
-            logger.error(traceback.format_exc())
 
             # اگر خطا مربوط به عدم وجود دیتابیس است، تلاش می‌کنیم آن را ایجاد کنیم
             if "database" in str(e).lower() and ("exist" in str(e).lower() or "does not exist" in str(e).lower()):
@@ -150,27 +148,26 @@ def get_engine():
                     time.sleep(5)
 
                     # حالا باید به دیتابیس جدید متصل شویم
-                    engine = create_engine(
-                        DATABASE_URL,
-                        pool_pre_ping=True,
-                        pool_recycle=600,
-                        pool_size=5,
-                        max_overflow=10,
-                        connect_args={
-                            'connect_timeout': 30,
-                            'keepalives': 1,
-                            'keepalives_idle': 30,
-                            'keepalives_interval': 10,
-                            'keepalives_count': 5
-                        }
-                    )
+                    if DATABASE_URL.startswith('postgresql'):
+                        engine = create_engine(
+                            DATABASE_URL,
+                            pool_pre_ping=True,
+                            pool_recycle=900,
+                            pool_size=5,
+                            max_overflow=10
+                        )
+                    else:
+                        engine = create_engine(
+                            DATABASE_URL,
+                            pool_pre_ping=True
+                        )
                     return engine
 
                 except Exception as create_error:
                     logger.error(
                         f"Error creating database: {str(create_error)}")
 
-            # تلاش برای استفاده از SQLite به عنوان پشتیبان در صورت خطای مکرر PostgreSQL
+            # برای SQLite به عنوان پشتیبان استفاده می‌کنیم
             if attempt >= max_retries - 3:  # در 3 تلاش آخر
                 logger.warning("Attempting to use SQLite as fallback database")
                 sqlite_path = "/app/backup/fallback.db"

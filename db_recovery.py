@@ -306,9 +306,14 @@ def optimize_database():
             logger.info("Running VACUUM ANALYZE to optimize database...")
             cursor.execute("VACUUM ANALYZE")
 
-            # بهینه‌سازی جداول اصلی
-            tables = ["bot_sessions", "bot_activities",
-                      "user_followings", "daily_stats"]
+            # بررسی وجود جداول قبل از reindex
+            cursor.execute("""
+                SELECT tablename FROM pg_tables 
+                WHERE schemaname = 'public'
+            """)
+            tables = [row[0] for row in cursor.fetchall()]
+
+            # بهینه‌سازی جداول موجود
             for table in tables:
                 logger.info(f"Running REINDEX on table {table}...")
                 cursor.execute(f"REINDEX TABLE {table}")

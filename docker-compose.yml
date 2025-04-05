@@ -27,10 +27,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    # اجرای برنامه اصلی با تاخیر برای اطمینان از آماده بودن دیتابیس
     command: >
       bash -c "
-        sleep 15 &&
+        sleep 10 &&
         python -m app.models.database && 
         python db_recovery.py & 
         uvicorn app.main:app --host 0.0.0.0 --port 8000"
@@ -56,34 +55,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # تنظیمات بهینه‌سازی شده ساده‌تر برای PostgreSQL
     command: postgres -c shared_buffers=128MB -c max_connections=50
 
-  # سرویس ساده‌تر برای پشتیبان‌گیری
-  backup:
-    image: postgres:14-alpine
-    container_name: postgres_backup
-    restart: always
-    volumes:
-      - ./backup:/backup
-    environment:
-      - PGHOST=postgres
-      - PGUSER=${DB_USER:-postgres}
-      - PGPASSWORD=${DB_PASSWORD:-postgres}
-      - PGDATABASE=${DB_NAME:-instagrambot}
-      - TZ=Asia/Tehran
-    depends_on:
-      - postgres
-    networks:
-      - instagram-bot-network
-    # اجرای اسکریپت پشتیبان‌گیری ساده با cron
-    command: >
-      bash -c "
-        echo '0 */12 * * * pg_dump -h postgres -U ${PGUSER} ${PGDATABASE} -f /backup/instagram_bot_`date +\%Y\%m\%d_\%H\%M\%S`.sql && echo \"Backup completed at `date`\" > /backup/last_backup.log' > /var/spool/cron/crontabs/postgres &&
-        echo 'Database backup service running...' &&
-        crond -f -d 8"
-    user: postgres
-
+  # بدون سرویس backup - این را حذف می‌کنیم چون مشکل دارد
 
 networks:
   instagram-bot-network:
